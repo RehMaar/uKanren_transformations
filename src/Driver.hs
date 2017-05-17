@@ -2,7 +2,7 @@ module Driver where
 import MuKanren hiding (mplus)
 import Control.Monad
 import Debug.Trace
-import Data.List (find, delete)
+import Data.List (find, delete, partition)
 import Data.Maybe (isJust)
 import Data.Foldable (foldrM)
 
@@ -15,7 +15,7 @@ data Tree subst ast = Success (subst,Int)
                     | Up Int subst ast
                     | Gen Int subst ast ESubst GenRef (Tree subst ast)
 
-data Ctx = EmptyCtx | ConjCtx AST Ctx
+data Ctx = EmptyCtx | ConjCtx AST Ctx | Bot
 
 instance (Show subst, Show ast) => Show (Tree subst ast) where
   show t = show' t 0 where
@@ -215,60 +215,126 @@ generalize smaller bigger n up =
   in generalize' smaller bigger [] [] n up
 
 flatten t EmptyCtx = t
+flatten t Bot = t
 flatten t (ConjCtx t' ctx) = flatten (Conj t t') ctx
 
 unify' l r st@(s,c) =
   unify l r s >>= \s -> Just (s,c)
 
+
+uniToTheTop t =
+  let (u, r) = extractUni t in conj (u ++ [conj r])
+  where extractUni t = partition (\x -> case x of { Uni _ _ -> True ; _ -> False }) (listifyConj t)
+        listifyConj (Conj l r) = listifyConj l ++ listifyConj r
+        listifyConj t = [t]
+
+applySubst (Conj l r)    s        = Conj (applySubst l s) (applySubst r s)
+applySubst (Disj l r)    s        = Disj (applySubst l s) (applySubst r s)
+applySubst t@(Fresh f)   (s,c)    = t -- applySubst (f $ var c) (s,c+1)
+applySubst (Fun n a)     s        = Fun n $ applySubst a s
+applySubst (Zzz a)       s        = Zzz $ applySubst a s
+applySubst (Call a args) s'@(s,c) = Call (applySubst a s') (map (`walk'` s) args)
+applySubst (Uni l r)     (s,c)    = Uni (walk' l s) (walk' r s)
+applySubst g@(GV _ _ _)   _       = g
+
 drive ast =
-  drive' 0 ast EmptyCtx emptyState []
+  drive' 0 ast EmptyCtx EmptyCtx emptyState []
   where
-    drive' _ (Uni l r) EmptyCtx st _ =
+    drive' _ (Uni l r) EmptyCtx lctx st _ =
       case unify' l r st of
         Just st' -> Success st'
         Nothing -> Fail
 
-    drive' n t@(Uni l r) c@(ConjCtx a ctx) st ancs =
+    drive' _ (Uni l r) Bot lctx st _ =
       case unify' l r st of
-        Just st'@(s',c') ->
-          let anc = flatten t c
-          in Step n s' anc (drive' (n+1) a ctx st' ((anc,n):ancs))
+        Just st' -> Success st'
         Nothing -> Fail
 
-    drive' n t@(Zzz a) ctx st@(s,c) ancs =
-      let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) a ctx st ((anc,n):ancs))
 
-    drive' n t@(Disj l r) ctx st@(s,c) ancs =
-      let anc = flatten t ctx
-      in Or n s anc (drive' (n+1) l ctx st ((anc,n):ancs)) (drive' (n+1) r ctx st ((anc,n):ancs))
+    drive' n t@(Uni l r) c@(ConjCtx a ctx) lctx st ancs =
+      case unify' l r st of
+        Just st'@(s',c') ->
+          let anc =
+                    flatten t c
+--                    applySubst (flatten t c) st'
+          in Step n s' anc (drive' (n+1) a ctx lctx st' ((anc,n):ancs))
+        Nothing -> Fail
 
-    drive' n t@(Conj l r) ctx st@(s,c) ancs =
-      let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) l (ConjCtx r ctx) st ancs)
+    drive' n t@(Zzz a) ctx lctx st@(s,c) ancs =
+      let anc =
+                flatten t ctx
+--                applySubst (flatten t ctx) st
+      in Step n s anc (drive' (n+1) a ctx lctx st ((anc,n):ancs))
 
-    drive' n t@(Fresh f) ctx st@(s,c) ancs =
-      let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) (f $ var c) ctx (s,c+1) ancs)
+    drive' n t@(Disj l r) ctx lctx st@(s,c) ancs =
+      let anc =
+                flatten t ctx
+--                applySubst (flatten t ctx) st
+      in Or n s anc (drive' (n+1) l ctx lctx st ((anc,n):ancs)) (drive' (n+1) r ctx lctx st ((anc,n):ancs))
 
-    drive' _ (Fun _ _) _ _ _ = error "unapplied function"
+    drive' n t@(Conj l r) ctx lctx st@(s,c) ancs =
+      let anc =
+                flatten t ctx
+--                applySubst (flatten t ctx) st
+      in Step n s anc (drive' (n+1) l (ConjCtx r ctx) lctx st ancs)
 
-    drive' n t@(Call (Fun _ a) args) ctx st@(s,c) ancs =
-      let anc = flatten t ctx
+    drive' n t@(Fresh f) ctx lctx st@(s,c) ancs =
+      let anc =
+                flatten t ctx
+--                applySubst (flatten t ctx) st
+      in Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
+
+    drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
+
+    drive' n t@(Call (Fun _ funb) args) ctx lctx st@(s,c) ancs =
+      if n >= 40 then Fail else
+      let t' = flatten t ctx
+          anc =
+            let help EmptyCtx = t'
+                help Bot = t'
+                help (ConjCtx l ctx) = Conj l (help ctx)
+            in
+               help lctx
+--               applySubst (help lctx) st
           ch =
                case find (\(a,n') -> renaming a anc) ancs of
-                 Just (a,n') -> Up n' s anc
+                 Just (a,n') ->
+                   case ctx of
+                     Bot -> Up n' s anc
+                     EmptyCtx ->  drive' (n+1) funb Bot lctx st (ancs)
+                                 -- Up n' s anc
+                     ConjCtx next ctx' -> let nv = c+1
+                                              es = [(nv, Left t)]
+                                              generalizedish = flatten (GV nv es n) ctx
+                                          in Gen (n+1) s generalizedish es n (drive' (n+2) next ctx' (ConjCtx t lctx) (s,nv) (ancs))
                  Nothing ->
                    case find (\(a,n') -> isCoupling a anc && embed a anc) ancs of
                      Just (a,n') ->
-                       let (g, s1, s2, c') = generalize a anc c n'
-                       in drive' (n+1) g EmptyCtx st ((anc,n):ancs)
-                     Nothing -> drive' (n+1) a ctx st ((anc,n):ancs)
+                       case ctx of
+                         Bot ->
+                                let (g, s1, s2, c') = generalize a anc c n'
+                                in drive' (n+1) g EmptyCtx lctx st ((anc,n):ancs)
+                         EmptyCtx ->
+                                     drive' (n+1) funb Bot lctx st ancs
+--                                     let (g, s1, s2, c') = generalize a anc c n'
+--                                     in drive' (n+1) g EmptyCtx lctx st ((anc,n):ancs)
+                         ConjCtx next ctx' ->
+                           let nv = c+1
+                               es = [(nv, Left t)]
+                               generalizedish = flatten (GV nv es n) ctx
+                           in Gen (n+1) s generalizedish es n (drive' (n+2) next ctx' (ConjCtx t lctx) (s,nv) (ancs))
+                     Nothing -> drive' (n+1) funb ctx lctx st ((anc,n):ancs)
       in Step n s anc ch
 
-    drive' n t@(GV v es r) EmptyCtx st@(s,c) ancs =
+    drive' n t@(GV v es r) EmptyCtx lctx st@(s,c) ancs =
       Up r s t
 
-    drive' n t@(GV v es r) c@(ConjCtx a ctx) st@(s,_) ancs =
-     let anc = flatten t c
-     in Gen n s anc es r (drive' (n+1) a ctx st ((anc,n):ancs))
+    drive' n t@(GV v es r) Bot lctx st@(s,c) ancs =
+      Up r s t
+
+
+    drive' n t@(GV v es r) c@(ConjCtx a ctx) lctx st@(s,_) ancs =
+     let anc =
+               flatten t c
+--               applySubst (flatten t c) st
+     in Gen n s anc es r (drive' (n+1) a ctx lctx st ((anc,n):ancs))
