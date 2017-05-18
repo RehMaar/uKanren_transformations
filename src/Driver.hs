@@ -287,12 +287,12 @@ drive ast =
     drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
 
     drive' n t@(Call (Fun _ funb) args) ctx lctx st@(s,c) ancs =
-      if n >= 40 then Fail else
+--      if n >= 100 then Fail else
       let t' = flatten t ctx
           anc =
-            let help EmptyCtx = t'
-                help Bot = t'
-                help (ConjCtx l ctx) = Conj l (help ctx)
+            let ctxToList (ConjCtx l ctx) = l : ctxToList ctx
+                ctxToList _ = []
+                help ctx = conj $ reverse  (ctxToList ctx) ++ [t']
             in
                help lctx
 --               applySubst (help lctx) st
