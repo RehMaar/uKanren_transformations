@@ -29,3 +29,14 @@ reverso a b =
               )]
             ]
 
+revAcco xs acc sx =
+  fun "revAcco" $
+    conde [ [ xs === nil, sx === acc]
+          , [ callFresh (\h ->
+                callFresh (\t ->
+                  xs === pair h t &&&
+                  (let y = pair h acc in call (revAcco t y sx) [t, y, sx])
+                )
+              )
+            ]
+          ]
