@@ -16,13 +16,6 @@ main =
   do
     print $ drive (callFresh (\xs -> callFresh (\ys -> callFresh (\zs -> call (appendo xs ys zs) [xs, ys, zs]))))
 
---    print $ unfoldDet (call (appendo (Var 0) (Var 1) (Var 2)) [Var 0, Var 1, Var 2] )
---                      ([], 3)
---
---    print $ unfold (call (appendo (Var 0) (Var 1) (Var 2)) [Var 0, Var 1, Var 2] )
---                   ([], 3)
-
-
     print $ drive (callFresh (\x ->
                     callFresh (\y ->
                     callFresh (\i ->
@@ -31,6 +24,16 @@ main =
                     call (appendo x y i) [x, y, i] &&& call (appendo i z r) [i,z,r]))))))
 
     print $ drive (callFresh (\xs -> callFresh (\sx -> call (reverso xs sx) [xs, sx])))
+
+    print $ drive (callFresh (\xs -> callFresh (\sx -> call (revAcco xs nil sx) [xs, nil, sx])))
+
+
+--    print $ unfoldDet (call (appendo (Var 0) (Var 1) (Var 2)) [Var 0, Var 1, Var 2] )
+--                      ([], 3)
+--
+--    print $ unfold (call (appendo (Var 0) (Var 1) (Var 2)) [Var 0, Var 1, Var 2] )
+--                   ([], 3)
+
 
 --    Doesn't terminate
 --    print $ drive (callFresh (\xs -> callFresh (\sx -> call (revAcco xs nil sx) [xs, nil, sx])))

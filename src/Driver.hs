@@ -92,7 +92,7 @@ isCoupling l r =
 embed l r =
   let
       embedT :: Term -> Term -> [(Var, Var)] -> Maybe [(Var, Var)]
-      embedT l r ren = coupleT l r ren `mplus` coupleT l r ren
+      embedT l r ren = coupleT l r ren `mplus` diveT l r ren
 
       coupleT l r renaming =
         case (l,r) of
@@ -111,7 +111,8 @@ embed l r =
         (_, Var _) -> Nothing
         (_, Atom _) -> Nothing
         (_, Nil) -> Nothing
-        (x, Pair l r) -> embedT x l renaming `mplus` embedT x r renaming
+        (x, Pair l r) -> -- trace ("Checking terminals diving. X: " ++ show x ++ " AND pair: " ++ show (pair l r)) $
+                         embedT x l renaming `mplus` embedT x r renaming
         _ -> Nothing
 
       embed' l r renaming = couple l r renaming `mplus` dive l r renaming
@@ -122,7 +123,10 @@ embed l r =
           (Conj l l', Conj r r') -> embed' l r renaming >>= embed' l' r'
           (Disj l l', Disj r r') -> embed' l r renaming >>= embed' l' r'
           (Call (Fun nl al) als, Call (Fun nr ar) ars) | nl == nr ->
-            foldrM (\(l,r) ren -> embedT l r ren) renaming (zip als ars)
+            -- trace ("call function embedding: " ++ show (zip als ars) ) $
+            foldrM (\(l,r) ren ->
+              -- trace ("args renaming check. l: " ++ show l ++ " AND r: " ++ show r ++ " Renaming: " ++ show ren ) $
+              embedT l r ren) renaming (zip als ars)
           (Zzz l, Zzz r) -> embed' l r renaming
           _ -> Nothing
 
@@ -133,6 +137,7 @@ embed l r =
           (l, Conj r r') -> embed' l r renaming `mplus` embed' l r' renaming
           _ -> Nothing
   in
+    -- trace ("checking for embedding: l: " ++ show l ++ " AND r: " ++ show r ) $
     isJust $ embed' l r []
 
 --unfold _ Nothing = [(Nothing, Nothing)]
@@ -176,10 +181,12 @@ generalize smaller bigger n up =
             (Var n, (n, Right r) : s1, (n, Right l) : s2, n+1)
           (Var _, Pair _ _) ->
             (Var n, (n, Right r) : s1, (n, Right l) : s2, n+1)
-          (Atom _, Atom _) ->
+          (Atom _, Atom _) -> -- TODO why ignoring the actual values?
             (l, s1, s2, n)
           (Nil, Nil) ->
             (l, s1, s2, n)
+          (x, p@(Pair _ _)) ->
+            (Var n, (n, Right p) : s1, (n, Right x) : s2, n+1)
           _ -> error $ "Failed to generalize the following terms:\n" ++ show l ++ "\n" ++ show r ++ "\nThis is impossible due to embedding defenition"
 
       generalize' :: AST -> AST -> ESubst -> ESubst -> Int -> Int -> (AST, ESubst, ESubst, Int)
@@ -333,7 +340,7 @@ drive ast =
     drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
 
     drive' n_anc t@(Call (Fun _ funb) args) ctx lctx st@(s,c) ancs =
-      --if n >= 100 then Fail else
+      --if n_anc >= 10 then Fail else
       let t' = flatten t ctx
           ctxToList (ConjCtx l ctx) = l : ctxToList ctx
           ctxToList _ = []
@@ -367,14 +374,19 @@ drive ast =
           makeNode (Nothing,Nothing) n = Fail
           makeNode (Nothing, Just subst) n = Success subst
           makeNode (Just ast, Just subst@(s',c')) n =
-            trace ("making node from ast: " ++ show ast ++ "\nwith subst" ++ show subst) $
+            -- trace ("making node from ast: " ++ show ast ++ "\nwith subst" ++ show subst) $
             case find (\(a,n') -> renaming a ast) ((anc,n_anc):ancs) of
               Just (a,n') ->  {- trace (show ast) $ -} Up n' s' ast
               Nothing ->
                 case find (\(a,n') -> isCoupling a ast && embed a ast) ((anc,n_anc):ancs) of
                      Just (a,n') ->
-                       let qwert@(g, s1, s2, c'') = trace ("Generalizing\na:   " ++ show a ++ "\nast: " ++ show ast) $ generalize a ast c' n'
-                       in trace (show qwert) $ drive' (n+1) g EmptyCtx lctx (s',c'') ((anc,n_anc):ancs)
+                       let qwert@(g, s1, s2, c'') = -- trace ("Generalizing\na:   " ++ show a ++ "\nast: " ++ show ast) $
+                                                    generalize a ast c' n'
+                       in -- TODO think of better solution!
+                         case find (\(a,n') -> renaming a g) ((anc,n_anc):ancs) of
+                           Nothing -> -- trace (show qwert) $
+                                      drive' (n+1) g EmptyCtx lctx (s',c'') ((anc,n_anc):ancs)
+                           Just (a,n') -> Up n' s' g
                      Nothing -> drive' n ast EmptyCtx EmptyCtx subst ((anc,n_anc):ancs)
 
 
