@@ -111,8 +111,7 @@ embed l r =
         (_, Var _) -> Nothing
         (_, Atom _) -> Nothing
         (_, Nil) -> Nothing
-        (x, Pair l r) -> -- trace ("Checking terminals diving. X: " ++ show x ++ " AND pair: " ++ show (pair l r)) $
-                         embedT x l renaming `mplus` embedT x r renaming
+        (x, Pair l r) -> embedT x l renaming `mplus` embedT x r renaming
         _ -> Nothing
 
       embed' l r renaming = couple l r renaming `mplus` dive l r renaming
@@ -123,10 +122,7 @@ embed l r =
           (Conj l l', Conj r r') -> embed' l r renaming >>= embed' l' r'
           (Disj l l', Disj r r') -> embed' l r renaming >>= embed' l' r'
           (Call (Fun nl al) als, Call (Fun nr ar) ars) | nl == nr ->
-            -- trace ("call function embedding: " ++ show (zip als ars) ) $
-            foldrM (\(l,r) ren ->
-              -- trace ("args renaming check. l: " ++ show l ++ " AND r: " ++ show r ++ " Renaming: " ++ show ren ) $
-              embedT l r ren) renaming (zip als ars)
+            foldrM (\(l,r) ren -> embedT l r ren) renaming (zip als ars)
           (Zzz l, Zzz r) -> embed' l r renaming
           _ -> Nothing
 
@@ -137,35 +133,7 @@ embed l r =
           (l, Conj r r') -> embed' l r renaming `mplus` embed' l r' renaming
           _ -> Nothing
   in
-    -- trace ("checking for embedding: l: " ++ show l ++ " AND r: " ++ show r ) $
     isJust $ embed' l r []
-
---unfold _ Nothing = [(Nothing, Nothing)]
---
---unfold x st@(Just st'@(s,c)) =
-----  if c >= 6 then [(Nothing, Nothing)] else
---  case x of
---    GV _ _ _ -> [(Nothing, st)]
---    Uni  l r -> [(Nothing, unify l r s >>= \s -> Just (s,c))]
---    Disj (GV _ _ _) r -> [(Just r, st)]
---    Disj l (GV _ _ _) -> [(Just l, st)]
---    Disj l r -> unfold l st ++ unfold r st
---    Fresh f  -> [(Just $ f (var c), Just (s,c+1))]
---    Zzz a    -> [(Just a,st)]
---    Fun _ a  -> [(Just a,st)]
---    Call (Fun _ a) arg -> [(Just a,st)]
---    Conj (GV _ _ _) r -> [(Just r, st)]
---    Conj l (GV _ _ _) -> [(Just l, st)]
---    Conj (Uni l l') (Uni r r') -> [(Nothing, unify l l' s >>= \s -> unify r r' s >>= \s -> Just (s,c))]
---    Conj (Uni l l') r -> unfold r (unify l l' s >>= \s -> Just (s,c))
---    Conj l (Uni r r') -> unfold l (unify r r' s >>= \s -> Just (s,c))
---    Conj l r -> let l' = unfold l st
---                in concatMap (\y -> case y of
---                                     (Nothing, Nothing) -> [y]
---                                     (Nothing, st@(Just _)) -> unfold r st
---                                     (Just x', st@(Just _)) -> [(Just $ Conj x' r, st)]
---                                     _ -> error "invalid substitution during unfolding")
---                             l'
 
 generalize :: AST -> AST -> Int -> Int -> (AST, ESubst, ESubst, Int)
 generalize smaller bigger n up =
@@ -181,7 +149,7 @@ generalize smaller bigger n up =
             (Var n, (n, Right r) : s1, (n, Right l) : s2, n+1)
           (Var _, Pair _ _) ->
             (Var n, (n, Right r) : s1, (n, Right l) : s2, n+1)
-          (Atom _, Atom _) -> -- TODO why ignoring the actual values?
+          (Atom _, Atom _) -> -- TODO why the actual values are ingnored?
             (l, s1, s2, n)
           (Nil, Nil) ->
             (l, s1, s2, n)
@@ -261,8 +229,8 @@ unf t@(Disj l r) ctx st@(s,c) = Or 0 s t (unf l ctx st) (unf r ctx st)
 unf t@(Conj l r) ctx st@(s,c) = unf l (ConjCtx r ctx) st
 unf t@(Fresh f) ctx st@(s,c) = unf (f $ var c) ctx (s,c+1)
 unf t@(Call (Fun _ funb) args) ctx st@(s,c) = Leaf st (flatten t ctx)
-unf t@(GV v es r) EmptyCtx st@(s,c) = error "generalized variable" -- Up r s t
-unf t@(GV v es r) c@(ConjCtx a ctx) st@(s,_) = error "generalized variable" -- Gen 0 s t es r (unf a ctx st)
+unf t@(GV v es r) EmptyCtx st@(s,c) = error "generalized variable"
+unf t@(GV v es r) c@(ConjCtx a ctx) st@(s,_) = error "generalized variable"
 unf (Fun _ _) _ _ = error "unapplied function"
 unf t ctx st = error ("wow " ++ show t)
 
@@ -297,44 +265,28 @@ drive ast =
       case unify' l r st of
         Just st' -> Success st'
         Nothing -> Fail
---
---    drive' _ (Uni l r) Bot lctx st _ =
---      case unify' l r st of
---        Just st' -> Success st'
---        Nothing -> Fail
-
 
     drive' n t@(Uni l r) c@(ConjCtx a ctx) lctx st ancs =
       case unify' l r st of
         Just st'@(s',c') ->
-          let anc =
-                    flatten t c
---                    applySubst (flatten t c) st'
+          let anc = flatten t c
           in Step n s' anc (drive' (n+1) a ctx lctx st' ((anc,n):ancs))
         Nothing -> Fail
 
     drive' n t@(Zzz a) ctx lctx st@(s,c) ancs =
-      let anc =
-                flatten t ctx
---                applySubst (flatten t ctx) st
+      let anc = flatten t ctx
       in Step n s anc (drive' (n+1) a ctx lctx st ((anc,n):ancs))
 
     drive' n t@(Disj l r) ctx lctx st@(s,c) ancs =
-      let anc =
-                flatten t ctx
---                applySubst (flatten t ctx) st
+      let anc = flatten t ctx
       in Or n s anc (drive' (n+1) l ctx lctx st ((anc,n):ancs)) (drive' (n+1) r ctx lctx st ((anc,n):ancs))
 
     drive' n t@(Conj l r) ctx lctx st@(s,c) ancs =
-      let anc =
-                flatten t ctx
---                applySubst (flatten t ctx) st
+      let anc = flatten t ctx
       in Step n s anc (drive' (n+1) l (ConjCtx r ctx) lctx st ancs)
 
     drive' n t@(Fresh f) ctx lctx st@(s,c) ancs =
-      let anc =
-                flatten t ctx
---                applySubst (flatten t ctx) st
+      let anc = flatten t ctx
       in Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
 
     drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
@@ -345,13 +297,11 @@ drive ast =
           ctxToList (ConjCtx l ctx) = l : ctxToList ctx
           ctxToList _ = []
           anc = conj $ reverse  (ctxToList lctx) ++ [t']
-          first = let unfolded = unfold t st in {- trace ("unfolding first " ++ show t ++ " " ++ show unfolded ) $ -} unfolded
+          first = unfold t st
 
           throughCtx' subst ctx =
             let (l, subst') = throughCtx subst ctx
-            in
-              -- trace ("subst: " ++ show subst ++ " into ctx: " ++ show ctx) $
-              (case catMaybes l of {[] -> Nothing; x -> Just $ conj x}, subst')
+            in (case catMaybes l of {[] -> Nothing; x -> Just $ conj x}, subst')
             where
               throughCtx subst (EmptyCtx) = ([Nothing], Just subst)
               throughCtx subst (ConjCtx ast ctx) =
@@ -361,31 +311,25 @@ drive ast =
                   (Just ast', Just subst') -> let (ast'', subst'') = throughCtx subst' ctx in (Just ast' : ast'', subst'')
                   _ -> error "something strange happended during unfolding"
 
-          simplify blah =
-            let result = simplify' blah in {- trace ("simplified: " ++ show result) -} result
-            where
-              simplify' (Success subst) =
-                throughCtx' subst ctx
-              simplify' (Leaf subst ast) =
-                let (ast', subst') = throughCtx' subst ctx
-                in  case ast' of
-                      Nothing -> (Just ast, subst')
-                      Just ast'' -> (Just $ Conj ast ast'', subst')
+          simplify (Success subst) =
+            throughCtx' subst ctx
+          simplify (Leaf subst ast) =
+            let (ast', subst') = throughCtx' subst ctx
+            in  case ast' of
+                  Nothing -> (Just ast, subst')
+                  Just ast'' -> (Just $ Conj ast ast'', subst')
           makeNode (Nothing,Nothing) n = Fail
           makeNode (Nothing, Just subst) n = Success subst
           makeNode (Just ast, Just subst@(s',c')) n =
-            -- trace ("making node from ast: " ++ show ast ++ "\nwith subst" ++ show subst) $
             case find (\(a,n') -> renaming a ast) ((anc,n_anc):ancs) of
-              Just (a,n') ->  {- trace (show ast) $ -} Up n' s' ast
+              Just (a,n') ->  Up n' s' ast
               Nothing ->
                 case find (\(a,n') -> isCoupling a ast && embed a ast) ((anc,n_anc):ancs) of
                      Just (a,n') ->
-                       let qwert@(g, s1, s2, c'') = -- trace ("Generalizing\na:   " ++ show a ++ "\nast: " ++ show ast) $
-                                                    generalize a ast c' n'
+                       let qwert@(g, s1, s2, c'') = generalize a ast c' n'
                        in -- TODO think of better solution!
                          case find (\(a,n') -> renaming a g) ((anc,n_anc):ancs) of
-                           Nothing -> -- trace (show qwert) $
-                                      drive' (n+1) g EmptyCtx lctx (s',c'') ((anc,n_anc):ancs)
+                           Nothing -> drive' (n+1) g EmptyCtx lctx (s',c'') ((anc,n_anc):ancs)
                            Just (a,n') -> Up n' s' g
                      Nothing -> drive' n ast EmptyCtx EmptyCtx subst ((anc,n_anc):ancs)
 
@@ -393,60 +337,12 @@ drive ast =
           nodes [] n = Fail
           nodes [x] n = makeNode (simplify x) (n+1)
           nodes (x:xs) n = Or (n+1) s anc (makeNode (simplify x) (n+2)) (nodes xs (n+1))
-          ch = {- trace ("ctx: " ++ show ctx ++ "\nunfolded " ++ show first ++ "\n") $ -} nodes first n_anc
-      in
-
-        Step n_anc s anc ch
-
---    drive' n t@(Call (Fun _ funb) args) ctx lctx st@(s,c) ancs =
-----      if n >= 100 then Fail else
---      let t' = flatten t ctx
---          anc =
---            let ctxToList (ConjCtx l ctx) = l : ctxToList ctx
---                ctxToList _ = []
---                help ctx = conj $ reverse  (ctxToList ctx) ++ [t']
---            in
---               help lctx
-----               applySubst (help lctx) st
---          ch =
---               case find (\(a,n') -> renaming a anc) ancs of
---                 Just (a,n') ->
---                   case ctx of
---                     Bot -> Up n' s anc
---                     EmptyCtx ->  drive' (n+1) funb Bot lctx st (ancs)
---                                 -- Up n' s anc
---                     ConjCtx next ctx' -> let nv = c+1
---                                              es = [(nv, Left t)]
---                                              generalizedish = flatten (GV nv es n) ctx
---                                          in Gen (n+1) s generalizedish es n (drive' (n+2) next ctx' (ConjCtx t lctx) (s,nv) (ancs))
---                 Nothing ->
---                   case find (\(a,n') -> isCoupling a anc && embed a anc) ancs of
---                     Just (a,n') ->
---                       case ctx of
---                         Bot ->
---                                let (g, s1, s2, c') = generalize a anc c n'
---                                in drive' (n+1) g EmptyCtx lctx st ((anc,n):ancs)
---                         EmptyCtx ->
---                                     drive' (n+1) funb Bot lctx st ancs
-----                                     let (g, s1, s2, c') = generalize a anc c n'
-----                                     in drive' (n+1) g EmptyCtx lctx st ((anc,n):ancs)
---                         ConjCtx next ctx' ->
---                           let nv = c+1
---                               es = [(nv, Left t)]
---                               generalizedish = flatten (GV nv es n) ctx
---                           in Gen (n+1) s generalizedish es n (drive' (n+2) next ctx' (ConjCtx t lctx) (s,nv) (ancs))
---                     Nothing -> drive' (n+1) funb ctx lctx st ((anc,n):ancs)
---      in Step n s anc ch
+          ch = nodes first n_anc
+      in  Step n_anc s anc ch
 
     drive' n t@(GV v es r) EmptyCtx lctx st@(s,c) ancs =
       Up r s t
 
---    drive' n t@(GV v es r) Bot lctx st@(s,c) ancs =
---      Up r s t
-
-
     drive' n t@(GV v es r) c@(ConjCtx a ctx) lctx st@(s,_) ancs =
-     let anc =
-               flatten t c
---               applySubst (flatten t c) st
+     let anc = flatten t c
      in Gen n s anc es r (drive' (n+1) a ctx lctx st ((anc,n):ancs))
