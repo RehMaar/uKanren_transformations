@@ -2,7 +2,7 @@ module Programs where
 import MuKanren
 
 appendo a b ab =
-  fun "appendo" $
+  Fun "appendo" $
       conde [ [ a === nil, b === ab ]
             , [ callFresh (\h ->
                   callFresh (\t ->

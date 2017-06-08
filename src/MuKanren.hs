@@ -135,10 +135,10 @@ eval x st@(s,c) =
         Nothing -> mzero
         Just s' -> unit (s',c)
     (Disj g g') -> eval g st `mplus` eval g' st
-    (Conj g g') -> eval g st `bind` \st -> eval g' st
-    (Fresh f) -> eval (f (var c)) (s, c + 1)
-    (Fun _ a) -> eval a st
-    (Call f _) -> eval f st
+    (Conj g g') -> trace ("conj: " ++ show g ++ " " ++ show g' ++ " " ++ show s ++ " " ++ show c) $ eval g st `bind` \st -> eval g' st
+    (Fresh f) -> trace ("fresh: " ++ show s ++ " " ++ show c) $ eval (f (var c)) (s, c + 1)
+--    (Fun _ a) -> eval a st
+    (Call (Fun _ a) _) -> eval a st
     (Zzz a) -> Immature (eval a st)
 
 reify' v stream =
