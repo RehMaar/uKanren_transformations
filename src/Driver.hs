@@ -3,7 +3,7 @@ import MuKanren hiding (mplus)
 import Control.Monad
 import Debug.Trace
 import Data.List (find, delete, partition)
-import Data.Maybe (isJust, catMaybes)
+import Data.Maybe (isJust, catMaybes, fromJust)
 import Data.Foldable (foldrM)
 
 type GenRef = Int
@@ -259,7 +259,7 @@ unfoldDet orig st@(s,c) =
 
 
 drive ast =
-  drive' 0 ast EmptyCtx EmptyCtx emptyState []
+  Step 0 emptySubst ast (drive' 1 ast EmptyCtx EmptyCtx emptyState [])
   where
     drive' _ (Uni l r) EmptyCtx lctx st _ =
       case unify' l r st of
@@ -270,12 +270,14 @@ drive ast =
       case unify' l r st of
         Just st'@(s',c') ->
           let anc = flatten t c
-          in Step n s' anc (drive' (n+1) a ctx lctx st' ((anc,n):ancs))
+          in drive' n a ctx lctx st' ((anc,n):ancs)
+--            Step n s' anc (drive' (n+1) a ctx lctx st' ((anc,n):ancs))
         Nothing -> Fail
 
     drive' n t@(Zzz a) ctx lctx st@(s,c) ancs =
       let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) a ctx lctx st ((anc,n):ancs))
+      in drive' n a ctx lctx st ((anc,n):ancs)
+--        Step n s anc (drive' (n+1) a ctx lctx st ((anc,n):ancs))
 
     drive' n t@(Disj l r) ctx lctx st@(s,c) ancs =
       let anc = flatten t ctx
@@ -283,11 +285,13 @@ drive ast =
 
     drive' n t@(Conj l r) ctx lctx st@(s,c) ancs =
       let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) l (ConjCtx r ctx) lctx st ancs)
+      in drive' n l (ConjCtx r ctx) lctx st ancs
+--         Step n s anc (drive' (n+1) l (ConjCtx r ctx) lctx st ancs)
 
     drive' n t@(Fresh f) ctx lctx st@(s,c) ancs =
       let anc = flatten t ctx
-      in Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
+      in drive' n (f $ var c) ctx lctx (s,c+1) ancs
+--        Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
 
     drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
 
@@ -303,7 +307,7 @@ drive ast =
             let (l, subst') = throughCtx subst ctx
             in (case catMaybes l of {[] -> Nothing; x -> Just $ conj x}, subst')
             where
-              throughCtx subst (EmptyCtx) = ([Nothing], Just subst)
+              throughCtx subst EmptyCtx = ([Nothing], Just subst)
               throughCtx subst (ConjCtx ast ctx) =
                 case unfoldDet ast subst of
                   (Nothing, Nothing) -> ([Nothing], Nothing)
