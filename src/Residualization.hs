@@ -104,7 +104,7 @@ residualize tree =
   residualize' tree [] []
   where
     residualize' Fail _ _ = Nothing
-    residualize' (Success (s,c)) _ bound = Just $ residualizeSubst bound $ makeSubst s
+    residualize' (Success (s,c)) _ bound = Just $ residualizeSubst bound $ makeSubst $ reverse s
     residualize' node@(Step n subst ast t) ancs bound = residualize' t ((n,node,ast):ancs) bound
     residualize' node@(Or n subst ast l r) ancs bound =
       let ancs' = (n,node,ast):ancs
@@ -116,4 +116,6 @@ residualize tree =
                  in  map (\x -> Var $ fromJust $ lookup x renaming) bound
           fun = Fun ("fun" ++ show n) $ fromJust $ residualize' anc ancs bound-- (residualizeBackRef bound anc args subst)
       in  Just $ call fun args
+
+
 

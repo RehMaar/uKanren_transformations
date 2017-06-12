@@ -5,6 +5,7 @@ import Residualization
 import Debug.Trace
 import Programs
 import Control.Monad.State
+import Data.Maybe (fromJust)
 
 run k a =
   let
@@ -22,16 +23,16 @@ main =
 --    let x = callFresh (\x -> callFresh (\y -> callFresh (\z -> (x === y) &&& (y === z) ) ) )
 --    print $ run 10 x
 
-    let red = residualize (Success ([(1,Var 2), (2, Var 13)], 0))
-    print $ case red of {Just r -> show $ eval r emptyState; Nothing -> "smth wrong"}
---    print $ case red of
---       Just r -> show $
---                  case r of
---                   Fresh f -> case f (var 0) of
---                                Fresh g ->
---                                  case g (var 1) of
---                                    Fresh h -> h (var 13) -- show $ eval r emptyState
---       Nothing -> "residualization failed"
+--    let x = callFresh (\x -> callFresh (\y -> callFresh (\z -> (x === pair y z) &&& (z === Nil) ||| (z === x) ) ) )
+--    print $ drive x
+--    print $ run 10 (fromJust $ residualize $ drive x)
+--    print $ run 10 x
+
+--    let red = residualize (Success ([(2, pair (var 3) (var 5)), (0, pair (var 3) (var 4))], 0))
+--    print $ case red of {Just r -> show $ eval r emptyState; Nothing -> "smth wrong"}
+--
+--    let red = residualize (Success ([(1, var 2), (2, pair (var 3) (var 4)), (5, pair (var 3) (var 6)), (6, nil)], 0))
+--    print $ case red of {Just r -> show $ eval r emptyState; Nothing -> "smth wrong"}
 
 --    print $ reify' (var 0) (Mature ([((1::Var),pair (var 2) nil), (4, nil), (3, pair (var 5) (var 6)), (0, pair (var 2) (var 3))], 10) Empty)
 
@@ -46,7 +47,7 @@ main =
 --                    call (appendo x y i) [x, y, i] &&& call (appendo i z r) [i,z,r]))))))
 --                    )
 
---    print $ drive (callFresh (\xs -> callFresh (\ys -> callFresh (\zs -> call (appendo xs ys zs) [xs, ys, zs]))))
+    print $ drive (callFresh (\xs -> callFresh (\ys -> callFresh (\zs -> call (appendo xs ys zs) [xs, ys, zs]))))
 --
 --    print $
 --            drive (callFresh (\x ->

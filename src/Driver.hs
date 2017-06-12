@@ -259,7 +259,8 @@ unfoldDet orig st@(s,c) =
 
 
 drive ast =
-  Step 0 emptySubst ast (drive' 1 ast EmptyCtx EmptyCtx emptyState [])
+--  Step 0 emptySubst ast (drive' 1 ast EmptyCtx EmptyCtx emptyState [])
+  drive' 0 ast EmptyCtx EmptyCtx emptyState []
   where
     drive' _ (Uni l r) EmptyCtx lctx st _ =
       case unify' l r st of
@@ -290,8 +291,8 @@ drive ast =
 
     drive' n t@(Fresh f) ctx lctx st@(s,c) ancs =
       let anc = flatten t ctx
-      in drive' n (f $ var c) ctx lctx (s,c+1) ancs
---        Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
+      in  -- drive' n (f $ var c) ctx lctx (s,c+1) ancs
+        Step n s anc (drive' (n+1) (f $ var c) ctx lctx (s,c+1) ancs)
 
     drive' _ (Fun _ _) _ _ _ _ = error "unapplied function"
 
