@@ -9,6 +9,7 @@ import qualified BridgeTest as BT
 import qualified PrintingTest as PT
 import qualified EmbedTest as ET
 import qualified SomeTest as ST
+import qualified ToPrologTest as TPT
 
 main :: IO ()
 main = do
@@ -28,3 +29,5 @@ main = do
   OC.main
   --ST.test
   --ST.test'
+
+  --TPT.main
