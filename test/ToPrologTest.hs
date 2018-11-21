@@ -1,6 +1,7 @@
 module ToPrologTest where
 
 import Syntax
+import OCanrenize
 import ToProlog
 import Bridge
 import Sudoku4x4
@@ -21,7 +22,14 @@ bottlesG = fst bottles   $
        call "checkAnswer" [V "ans", V "caps", toNat 6, C "true" []])
 
 
+printAfterPrologSpec :: String -> String -> IO ()
+printAfterPrologSpec name s =
+  toOCanren' ocanrenize' (name ++ "_prolog.ml") name Nothing $ prologToG s
+
+
+
 main = do
-  printInFile "bridge.pl" bridgeG
-  printInFile "sudoku.pl" sudokuG
-  printInFile "bottles.pl" bottlesG
+  --printInFile "bridge.pl" bridgeG
+  --printInFile "sudoku.pl" sudokuG
+  --printInFile "bottles.pl" bottlesG
+  readFile "bridge_spec.pl" >>= printAfterPrologSpec "bridge"

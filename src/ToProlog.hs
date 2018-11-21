@@ -7,7 +7,8 @@ import Purification
 import Data.Char
 import Data.List
 
-import Bridge
+import Text.ParserCombinators.Parsec
+
 
 --takeOutLets :: G X -> (G X, [Def])
 
@@ -131,3 +132,138 @@ printProg (rs, gs) = printRules rs ++ "\n" ++ printGoals gs
 
 translateAndPrint :: G X -> String
 translateAndPrint = printProg . toProlog
+
+{-------------------------------------------}
+{-------------------------------------------}
+{-------------------------------------------}
+
+commentP :: Parser ()
+commentP =
+  let rest = many (noneOf "*") >> char '*' >> (string "/" <|> rest) in
+  string "/*" >> rest >> return ()
+
+{-------------------------------------------}
+voidP :: Parser ()
+voidP = skipMany (commentP <|> skipMany1 space)
+
+{-------------------------------------------}
+nameP :: Parser String
+nameP = do
+  first <- lower
+  rest  <- many (letter <|> digit <|> char '_')
+  voidP
+  return (first : rest)
+
+{-------------------------------------------}
+varP :: Parser (Term X)
+varP = do
+  first <- upper
+  rest  <- many (letter <|> digit <|> char '_')
+  voidP
+  return (V $ first : rest)
+
+{-------------------------------------------}
+enumP :: Parser a -> Parser [a]
+enumP argP = do
+  first <- argP
+  rest  <- many (char ',' >> voidP >> argP)
+  return (first : rest)
+
+{-------------------------------------------}
+enumInBracketsP :: Parser a -> Parser [a]
+enumInBracketsP argP = do
+  char '('
+  voidP
+  enum <- enumP argP
+  char ')'
+  voidP
+  return enum
+
+{-------------------------------------------}
+constrP :: Parser (Term X)
+constrP = do
+  name <- nameP
+  args <- option [] $ enumInBracketsP termP
+  return (C name args)
+
+{-------------------------------------------}
+termP :: Parser (Term X)
+termP = varP <|> constrP
+
+{-------------------------------------------}
+funcP :: Parser Func
+funcP = do
+  name <- nameP
+  args <- option [] $ enumInBracketsP termP
+  return (name, args)
+
+{-------------------------------------------}
+bodyP :: Parser Funcs
+bodyP = option [] $ string ":-" >> voidP >> enumP funcP
+
+{-------------------------------------------}
+ruleP :: Parser Rule
+ruleP = do
+  hd   <- funcP
+  body <- bodyP
+  char '.'
+  voidP
+  return (hd, body)
+
+{-------------------------------------------}
+rulesP :: Parser Rules
+rulesP = many ruleP
+
+{-------------------------------------------}
+getRules :: String -> Rules
+getRules s = case parse (voidP >> rulesP) "" s of
+             Left  m -> error $ show m
+             Right r -> r
+
+{-------------------------------------------}
+{-------------------------------------------}
+{-------------------------------------------}
+
+sepRules :: Rules -> [Rules]
+sepRules []               = []
+sepRules (x@((n,_),_):xs) = let (g,r) = partition ((n==) . fst . fst) xs in
+                            (x:g) : sepRules r
+
+{-------------------------------------------}
+normalizeTerm :: Term X -> Term X
+normalizeTerm (V v)        = V $ 'f' : v
+normalizeTerm (C "cons" a) = C "%" $ map normalizeTerm a
+normalizeTerm (C n a)      = C n   $ map normalizeTerm a
+
+{-------------------------------------------}
+normalizeFunc :: Func -> Func
+normalizeFunc (n, a) = (n, map normalizeTerm a)
+
+{-------------------------------------------}
+normalizeRules :: Rules -> Rules
+normalizeRules = map (\(h,b) -> (normalizeFunc h, map normalizeFunc b))
+
+{-------------------------------------------}
+ruleToG :: [X] -> Rule -> G X
+ruleToG v ((name, a ), b ) =
+  let conjs1 = map (\(v,t) -> V v === t) $ zip v a in
+  let conjs2 = map (\(n,a) -> Invoke n a) b in
+  let conjs  = conjs1 ++ conjs2 in
+  let g      = if null conjs then Invoke "success" [] else foldl1 (&&&) conjs in
+  fresh (fvg g \\ v) g
+
+{-------------------------------------------}
+rulesToDef :: Rules -> Def
+rulesToDef rs@(((n,a),_):_) =
+  let v     = map (('z':) . show) [1..length a] in
+  let disjs = map (ruleToG v) rs in
+  def n v $ foldl1 (|||) disjs
+
+{-------------------------------------------}
+prologToG :: String -> (G X, [String], [Def])
+prologToG pr =
+  let rules@((((n,a),_):_):_) = sepRules $ normalizeRules $ getRules pr in
+  let defs = map rulesToDef rules in
+  let vars = map (('y':) . show) [1..length a] in
+  let g    = Invoke n (map V vars) in
+  (g, vars, defs)

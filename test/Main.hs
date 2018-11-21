@@ -26,8 +26,8 @@ main = do
   --BT.testBig
   --BT.testEq
 
-  OC.main
+  --OC.main
   --ST.test
   --ST.test'
 
-  --TPT.main
+  TPT.main
