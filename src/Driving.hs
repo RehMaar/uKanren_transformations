@@ -55,12 +55,7 @@ rename g1 g2 = rename' (Just []) (g1, g2) where
 renameGoals :: [G S] -> [G S] -> Maybe Renaming
 renameGoals as bs = rename (conj as) (conj bs)
 
-{-embed :: G S -> G S -> Bool
-embed g@(g1 :/\: g2) (h1 :/\: h2) = embed g1 h1 && embed g2 h2 || embed g h1 || embed g h2
-embed g (g1 :/\: g2) = embed g g1 || embed g g2
-embed (Invoke f fs) (Invoke g gs) | f == g && length fs == length gs = embedTerms fs gs
-embed _ _ = False
--}
+
 embedTerm :: Ts -> Ts -> Bool
 embedTerm (V _) (V _) = True
 embedTerm (C n ns) (C m ms) | n == m && length ms == length ns = and $ zipWith embedTerm ns ms
@@ -82,7 +77,7 @@ embedGoals gs hs = coupleConj gs hs || diveConj gs hs where
   diveConj as (b:bs) = embedConj as bs
   diveConj _ _ = False
 
--- Embedding
+-- -- Embedding
 -- embed :: G S -> G S -> Maybe Renaming
 -- embed g1' g2' = embedGoal (Just []) (g1', g2') where
 --   embedGoal r (g1 :/\:  g2, h1 :/\: h2 ) =
@@ -150,18 +145,6 @@ generalizeCall d gg (Invoke f as, Invoke g bs) =
   let ((C _ cs, s1, s2), d') = generalizeTerm d gg (C "()" as, C "()" bs) in
   ((Invoke f cs, s1, s2), d')
 
-
-{-
-generalize d gg (g1 :/\: g2) (h1 :/\: h2) =
-  let (i, s1' , s2' , d' ) = generalize d  gg         g1 h1 in
-  let (j, s1'', s2'', d'') = generalize d' (s1', s2') g2 h2 in
-  (i :/\: j, s1'', s2'', d'')
-generalize d gg (Invoke f as) (Invoke g bs) =
-  let (msg, d')        = generalizeTerm d gg (C "()" as, C "()" bs) in
-  let (C _ cs, s1, s2) = refine msg in
-  (Invoke f cs, s1, s2, d')
--}
-
 generalizeTerm vs s@(s1, s2) (C m ms, C n ns) | m == n && length ms == length ns =
   let (gs, (s1, s2), vs') = foldl (\ (gs, s, vs) ts ->
                                         let ((g, s1, s2), vs') = generalizeTerm vs s ts in
@@ -176,7 +159,7 @@ generalizeTerm (v:vs) (s1, s2) (t1, t2) = ((V v, (v, t1):s1, (v, t2):s2), vs)
 generalizeGoals :: [S] -> [G S] -> [G S] -> ([G S], Generalizer, Generalizer, [S])
 generalizeGoals s as bs =
   let res@(msg_, s1_, s2_, _) = refine $ generalize s ([], []) as bs in
-  -- trace ("Generalizing\nFirst:  " ++ show as ++ "\nSecond: " ++ show bs ++ "\nmsg: " ++ show msg_ ++ "\ns1:  " ++ show s1_ ++ "\ns2:  " ++ show s2_) $
+  trace ("Generalizing\nFirst:  " ++ show as ++ "\nSecond: " ++ show bs ++ "\nmsg: " ++ show msg_ ++ "\ns1:  " ++ show s1_ ++ "\ns2:  " ++ show s2_) $
   res
 
 
@@ -221,92 +204,90 @@ update :: (E.P, E.Delta) -> Def -> (E.P, E.Delta)
 update (p, d) def' = let (p', _, d') = E.update (p, E.emptyIota, d) def' in (p', d')
 
 
-invoke :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> [Zeta] -> (TreeContext, Tree, E.Delta)
-invoke tc@(sr, args, ids) cs d s gen conjs =
+invoke :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> Zeta -> (TreeContext, Tree, E.Delta)
+invoke tc@(sr, args, ids) cs d s gen goal =
   -- HERE WE HAVE TO SUBSTITUTE INTO THE CURRENT GOAL
- let qqq = map (\(a, b, g) -> (a, b, substitute s g)) conjs in
- let qqq_conjs = map trd' qqq in
-  {-
- if length conjs > 3 -- head ids > 100
+ let qqq = (\(a, b, g) -> (a, b, substitute s g)) goal in
+ let qqq_conjs = [trd' qqq] in
+
+ if head ids > 100
  then
     case find (\ (_, conjs') -> (embedGoals conjs' qqq_conjs)) cs of
       Nothing     -> trace "AHA" $ (tc, Prune [conj qqq_conjs], d)
       Just (_, j) -> (tc, Prune [conj qqq_conjs, Invoke "Embedding" [],  conj j], d)
- else-}
-  -- let qqq = map (\(a, b, g) -> (a, b, substitute s g)) conjs in
-  -- let qqq_conjs = map trd' qqq in
-  let p = snd' $ head conjs in
-  let g = conj qqq_conjs in
+ else
+  let p = snd' goal in
+  let g = qqq_conjs in
   let id:ids' = ids in
   case find (\ (_, conjs') -> isJust $ renameGoals conjs' qqq_conjs) cs of
     Just (di, conjs') ->
       let r = fromJust (renameGoals conjs' qqq_conjs) in
       (
         updateTc tc di (map fst r),
-        Rename di g s r s,
+        Rename di (head g) s r s,
         d
       )
     Nothing ->
       case find (\ (_, conjs') -> (embedGoals conjs' qqq_conjs)) cs of
         Just (_, conjs') ->
-          if length qqq == length conjs'
+          if length [qqq] == length conjs'
           then
                let (msg_, s1, s2, d') = generalizeGoals d qqq_conjs conjs' in -- ADD GENERALIZER
                let msg = conj msg_ in
-               let (tc', node, d'') = eval (sr, args, ids') ((id, qqq_conjs):cs) d' s s1 [] (fst' $ head conjs, p, msg) [] in
+               let (tc', node, d'') =
+                       case find (\ (_, conjs') -> isJust $ renameGoals conjs' msg_) cs of
+                         Just (di, conjs') -> eval (sr, args, ids') ((id, qqq_conjs):cs) d' s s1 (fst' $ goal, p, msg)
+                         _ -> unfold (sr, args, ids') ((id, qqq_conjs):cs) d' s s1 (fst' $ goal, p, msg)
+               in
                (tc', Gen id s1 node msg s, d'')
-          else if length conjs' < length qqq
+          else if length conjs' < length [qqq]
                then let context  = (id, qqq_conjs):cs in
-                    let splitted = split qqq conjs' in
+                    let splitted = split [qqq] conjs' in
                     --trace ("\nSplitted " ++ show (map (map trd') splitted)) $
                     let (tc'', d'', nodes) = foldl (\(tc, d, nodes) x ->
-                                                       let (tc', node', d') = eval tc context d s gen [] (head x) (tail x)
+                                                       let (tc', node', d') = eval tc context d s gen (head x) -- (tail x)
                                                        in  (tc', d', node' : nodes)
                                                    ) ((sr, args, ids'), d, []) splitted
-                    in (tc'', Split id (reverse nodes) g s, d'') -- TODO check if reverse is ok!
+                    in (tc'', Split id (reverse nodes) (head g) s, d'') -- TODO check if reverse is ok!
                else error "Wow..."
         Nothing -> unfold tc cs d s gen qqq
 
 type Zeta = (E.Iota, E.P, G S)
 
-eval :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> [Zeta] -> Zeta -> [Zeta]  -> (TreeContext, Tree, E.Delta)
-eval tc cs d s gen prev (i, p, Let def g) conjs =
+eval :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> Zeta -> (TreeContext, Tree, E.Delta)
+eval tc cs d s gen (i, p, Let def g) =
   let (p', d') = update (p, d) def in
-  eval tc cs d' s gen prev (i, p', g) conjs
-eval tc cs d s gen prev g@(i, p, t1 :=: t2) conjs =
+  eval tc cs d' s gen (i, p', g)
+eval tc cs d s gen g@(i, p, t1 :=: t2) =
   case takeS 1 $ E.eval (p, i, d) s (trd' g) of
     []       -> (tc, Fail, d)
-    [(s, _)] -> case conjs of
-                  []       -> case prev of
-                                [] -> unfold tc cs d s gen []
-                                _  -> invoke tc cs d s gen $ reverse prev
-                  g':conj' -> eval tc cs d s gen prev g' conj'
-eval tc cs d s gen prev g@(i, p, g1 :\/: g2) conjs =
-  let (tc',  node' , d' ) = eval tc  cs d  s gen prev (i, p, g1) conjs in
-  let (tc'', node'', d'') = eval tc' cs d' s gen prev (i, p, g2) conjs in
-  (tc'', Or node' node'' (conj $ map trd' $ (reverse prev) ++ g:conjs) s, d'')
-eval tc cs d s gen prev (i, p, g1 :/\: g2) conjs = eval tc cs d s gen prev (i, p, g1) ((i, p, g2):conjs)
---eval tc cs d s gen prev (i,p,Zzz g) conjs = eval tc cs d s gen prev (i,p,g) conjs
-eval tc cs d s gen prev g@(_, _, Invoke _ _) (g':conjs') = eval tc cs d s gen (g:prev) g' conjs'
-eval tc cs d s gen prev g@(_, _, Invoke _ _) []          = invoke tc cs d s gen (reverse $ g:prev)
+    [(s, _)] -> (tc, Success s, d)
+eval tc cs d s gen g@(i, p, g1 :\/: g2) =
+  let (tc',  node' , d' ) = eval tc  cs d  s gen (i, p, g1) in
+  let (tc'', node'', d'') = eval tc' cs d' s gen (i, p, g2) in
+  (tc'', Or node' node'' (trd' g) s, d'')
+eval tc cs d s gen g@(i, p, g1 :/\: g2) =
+  let (tc',  node' , d' ) = eval tc  cs d  s gen (i, p, g1) in
+  let (tc'', node'', d'') = eval tc' cs d' s gen (i, p, g2) in
+  (tc'', And node' node'' (trd' g) s, d'')
+eval tc cs d s gen g@(_, _, Invoke _ _) = invoke tc cs d s gen g
 
-unfold :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> [Zeta] -> (TreeContext, Tree, E.Delta)
-unfold tc _ d s _ []            = (tc, Success s, d)
-unfold (sr, args, ids) cs e s gen conjs =
-  let cs_conjs     = map (\ (_, _, Invoke f as) -> Invoke f $ map (E.substitute s) as) conjs in
-  let (e', conjs') = foldl (\ (d, conj) (i, p, zyz@(Invoke f as)) ->
-                               let (_, fs, g) = p f in
-                               let i'         = foldl (\ interp (f, a) -> E.extend interp f a) i $ zip fs as in
-                               let (g', (p', i'', d'), _) = E.preEval' (p, i', d) g in
-                               (d', (i'', p', g'):conj)
-                           ) (e, []) conjs
+unfold :: TreeContext -> Stack -> E.Delta -> E.Sigma -> Generalizer -> Zeta -> (TreeContext, Tree, E.Delta)
+unfold (sr, args, ids) cs e s gen goal =
+  let cs_goal     = (\ (_, _, Invoke f as) -> Invoke f $ map (E.substitute s) as) goal in
+  let (e', conjs') =  case goal of
+                         (i, p, zyz@(Invoke f as)) ->
+                            let (_, fs, g) = p f in
+                            let i'         = foldl (\ interp (f, a) -> E.extend interp f a) i $ zip fs as in
+                            let (g', (p', i'', d'), _) = E.preEval' (p, i', e) g in
+                            (d', (i'', p', g'))
   in
   let id:ids'      = ids    in
-  let h:t          = reverse conjs' in
-  let (tc', node, d')  = eval (sr, args, ids') ((id, cs_conjs):cs) e' s gen [] h t in
-  (tc', Call id node ( conj $ {- (Invoke (show s) [] ) : -} map trd' conjs) s, d')
+  let h            = conjs' in
+  let (tc', node, d')  = eval (sr, args, ids') [(id, [cs_goal])] e' s gen h in
+  (tc', Call id node (trd' goal ) s, d')
 
 drive :: G X -> (TreeContext, Tree, [Id])
 drive goal =
   let (goal', (g', i', d'), args) = E.preEval' E.env0 goal in
-  let (x, y, _) = eval emptyContext [] d' E.s0 [] [] (i', g', goal') [] in (x, y, reverse args)
+  let (x, y, _) = eval emptyContext [] d' E.s0 [] (i', g', goal') in (x, y, reverse args)

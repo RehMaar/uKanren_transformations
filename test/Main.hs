@@ -21,5 +21,5 @@ main = do
   --BT.test
 
   OC.main
-  ST.test
-  ST.test'
+  -- ST.test
+  -- ST.test'
