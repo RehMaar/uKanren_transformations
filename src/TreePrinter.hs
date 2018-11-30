@@ -58,6 +58,7 @@ label tree =
     label' t@(Call _ ch _ _)  i ns es ids = addChild    t i ns es ids ch
     label' t@(Gen _ _ ch _ _) i ns es ids = addChild    t i ns es ids ch
     label' t@(Or ch1 ch2 _ _) i ns es ids = addChildren t i ns es ids [ch1, ch2]
+    label' t@(And ch1 ch2 _ _) i ns es ids = addChildren t i ns es ids [ch1, ch2]
     label' t@(Split _ ch _ _) i ns es ids = addChildren t i ns es ids ch
     label' t                  i ns es ids = addLeaf     t i ns es ids
     addLeaf n nodeId ns es ids = ((nodeId, dot n) : ns, es, ids)

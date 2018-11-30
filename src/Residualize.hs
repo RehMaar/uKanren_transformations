@@ -28,12 +28,16 @@ substCon gen s ubst g =
   else residualizeSubst gen delta &&& g
 
 simpl :: Tree -> Tree
+simpl (And l r g s) =
+  case (simpl l, simpl r) of
+    (Fail, _) -> Fail
+    (_, Fail) -> Fail
+    (l', r')  -> And l' r' g s
 simpl (Or l r g s) =
-  case simpl l of
-    Fail -> simpl r
-    l'   -> case simpl r of
-              Fail -> l'
-              r'   -> Or l' r' g s
+  case (simpl l, simpl r) of
+    (Fail, r') -> r'
+    (l', Fail) -> l'
+    (l', r')   -> Or l' r' g s
 simpl (Gen id' gen ch g s) =
   case simpl ch of
     Fail -> Fail
@@ -72,6 +76,7 @@ residualize (tc, t, args) =
       else residualizeSubst g delta
     residualizeGen g tc (Rename id _ s r s' )  ubst = substCon g s' ubst $ simplConj [residualizeGen g tc (Success s) s', Invoke (fident id) (reverse [V $ vident $ snd x | x <- r])]
     residualizeGen g tc (Or     l r _    s' )  ubst = substCon g s' ubst $ residualizeGen g tc l s' ||| residualizeGen g tc r s'
+    residualizeGen g tc (And    l r _    s' )  ubst = substCon g s' ubst $ simplConj [residualizeGen g tc l s', residualizeGen g tc r s']
     residualizeGen g tc (Split  id ts _ s' )   ubst = substCon g s' ubst $ scope tc id $ simplConj $ map (\x -> residualizeGen g tc x s') ts
     residualizeGen g tc (Gen    id g' t _ s' ) ubst = substCon g (s' ++ g') ubst $ scope tc id $ residualizeGen (g' `E.o` g) tc t s'
     residualizeGen g tc (Call   id s    _ s' ) ubst = substCon g s' ubst $ scope tc id $ residualizeGen g tc s s'
