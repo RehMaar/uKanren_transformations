@@ -180,6 +180,35 @@ enumInBracketsP argP = do
   return enum
 
 {-------------------------------------------}
+listEmptyRestP :: Parser (Term X)
+listEmptyRestP = do
+  char ']'
+  voidP
+  return (C "nil" [])
+
+{-------------------------------------------}
+listNonemptyLastP :: Parser (Term X)
+listNonemptyLastP = do
+  char '|'
+  voidP
+  rest <- termP
+  char ']'
+  voidP
+  return rest
+
+{-------------------------------------------}
+listNonemptyRestP :: Parser (Term X)
+listNonemptyRestP = do
+  args <- enumP termP
+  rest <- (listNonemptyLastP <|> listEmptyRestP)
+  return (foldr (\x acc -> C "cons" [x, acc]) rest args)
+
+{-------------------------------------------}
+listP :: Parser (Term X)
+listP = char '[' >> voidP >> (listEmptyRestP <|> listNonemptyRestP)
+
+
+{-------------------------------------------}
 constrP :: Parser (Term X)
 constrP = do
   name <- nameP
@@ -188,7 +217,7 @@ constrP = do
 
 {-------------------------------------------}
 termP :: Parser (Term X)
-termP = varP <|> constrP
+termP = varP <|> constrP <|> listP
 
 {-------------------------------------------}
 funcP :: Parser Func
