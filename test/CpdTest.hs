@@ -77,9 +77,42 @@ manyAssertOne :: (Show a, Eq a) => String -> a -> (b -> a) -> [b] -> IO ()
 manyAssertOne name expected f =
   mapM_ (assert name expected . f)
 
+
+dA = doubleAppendo $
+        fresh ["x", "y", "z", "r"]
+           (call "doubleAppendo" [V "x", V "y", V "z", V "r"])
+
+dA2 = doubleAppendo $
+        fresh ["x", "y", "z", "r", "p"]
+           (call "doubleAppendo" [V "x" % V "p", V "y", V "z", V "r"])
+
+mem2 = membero $
+        fresh ["a", "b"] $
+        call "membero" [V "a", C "Cons" [V "a", V "b"]]
+
+mem1 = membero $
+        fresh ["a"] $
+        call "membero" [V "a", C "Cons" [V "a", nil]]
+
+rev1 = revAcco $
+        fresh ["a", "B", "R"] $
+        call "revacco" [V "a" % V "B", nil, V "R"]
+
+rev2 = revAcco $
+        fresh ["a", "B", "R"] $
+        call "revacco" [V "B", V "a", V "R"]
+
+
+(dlg@(Descend lg _), gamma) = goalToDescendGoal mem2
+(ngoal, ngamma, cn) = unfold lg gamma
+(p, i, df) = ngamma
+
+
 printStuff = do
-  printTree "sldDouble.dot" $ topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [V "x", V "y", V "z", V "r"]))
-  -- printTree "simpleDouble.dot" $ topLevel (appendo $ fresh ["x", "y", "z", "t", "r"] (call "appendo" [V "x", V "y", V "t"] &&& call "appendo" [V "t", V "z", V "r"]))
+  printTree "sldDouble.dot" $ topLevel dA
+
+  --printTree "simpleDouble.dot" $ topLevel (appendo $ fresh ["x", "y", "z", "t", "r"] (call "appendo" [V "x", V "y", V "t"] &&& call "appendo" [V "t", V "z", V "r"]))
+  {-
   printTree "sldAppNil.dot" $ topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [nil, V "y", V "z", V "r"]))
   printTree "maxLengtho.dot" $ topLevel (maxLengtho $ fresh ["x", "l", "m"] (call "maxLengtho" [V "x", V "l", V "m"]))
   printTree "maxo.dot" $ topLevel (maxo $ fresh ["x", "m"] (call "maxo" [V "x", V "m"]))
@@ -90,16 +123,18 @@ printStuff = do
                                                                              call "appendo" [V "a", V "b", V "c"] &&&
                                                                              call "appendo" [V "b", V "a", V "c"]))
   printTree "inBotho.dot" $ topLevel (inBotho $ fresh ["x", "l"] (call "inBotho" [V "x", (C "a" [] % nil), V "l" ]))
+  -}
   printTree "copycopy.dot" $ topLevel (copycopy $ fresh ["l", "l1", "l2"] (call "copycopy" [V "l", V "l1", V "l2"]))
+  {-
   printTree "global_copycopy.dot" $ GC.topLevel (copycopy $ fresh ["l", "l1", "l2"] (call "copycopy" [V "l", V "l1", V "l2"]))
 
   printTree "globalSimpleDouble.dot" $ GC.topLevel (appendo $ fresh ["x", "y", "z", "t", "r"] (call "appendo" [V "x", V "y", V "t"] &&& call "appendo" [V "t", V "z", V "r"]))
-
+  -}
 
 printGlobalStuff = do
   printTree "globalDouble.dot"     $ GC.topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [V "x", V "y", V "z", V "r"]))
-  let f = residualizeGlobalTree $ GC.topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [V "x", V "y", V "z", V "r"]))
-  print $ f (V "x" === V "x")
+  --let f = residualizeGlobalTree $ GC.topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [V "x", V "y", V "z", V "r"]))
+  --print $ f (V "x" === V "x")
   -- printTree "globalCommute.dot"    $ GC.topLevel (appendo $ fresh ["a", "b", "c"] (call "appendo" [V "a", V "b", V "c"] &&& call "appendo" [V "b", V "a", V "c"]))
   -- printTree "globalAppNil.dot"     $ GC.topLevel (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [nil, V "y", V "z", V "r"]))
   -- printTree "globalRevAcco.dot"    $ GC.topLevel (revAcco $ fresh ["x", "y"] (call "revacco" [V "x", nil, V "y"]))
