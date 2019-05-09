@@ -10,6 +10,7 @@ import qualified Data.Map.Strict as Map
 import Debug.Trace
 import List hiding (c)
 import Text.Printf
+import Miscellaneous
 
 type Set = Set.Set
 type Map = Map.Map
@@ -177,7 +178,7 @@ conservativePurificationWithErasure x = (goalAfterPurification, args, defsAfterP
   erasure        = removeRedundantArgs (mainFuncs ++ concat internalFuncs) initialErasure
 
   goalAfterPurification  = snd $ purify "main" args goalWithoutLets
-  defsAfterPurification  = map (\(n, a, g) -> let (a', g') = purify n a g in (n, a', g')) defs
+  defsAfterPurification  = filter (not . null . snd3) $ map (\(n, a, g) -> let (a', g') = purify n a g in (n, a', g')) defs
 
   purify :: Name -> [X] -> G X -> ([X], G X)
   purify n a = let a' = applyErasure erasure n a in
@@ -195,7 +196,12 @@ conservativePurificationWithErasure x = (goalAfterPurification, args, defsAfterP
     purifyU constrV conjs (g1 :\/: g2)            = let constrV' = foldl (\s -> Set.union s . Set.fromList . fvg) constrV conjs in
                                                     let ([], g1') = purifyU constrV' [] g1 in
                                                     let ([], g2') = purifyU constrV' [] g2 in
-                                                    (conjs, g1' ||| g2')
+                                                    case (g1', g2') of
+                                                      (Invoke "success" [], Invoke "success" []) -> (conjs, success)
+                                                      (_                  , Invoke "success" []) -> (conjs, g1')
+                                                      (Invoke "success" [], _                  ) -> (conjs, g2')
+                                                      _                                          -> (conjs, g1' ||| g2')
+                                                    -- (conjs, g1' ||| g2')
     purifyU constrV conjs (g1 :/\: g2)            = let (g2' :conjs' , g1' ) = purifyU constrV (g2 :conjs ) g1  in
                                                     let (g1'':conjs'', g2'') = purifyU constrV (g1':conjs') g2' in
                                                     case (g1'', g2'') of
@@ -448,10 +454,11 @@ renameFreshVars g =
 trace_pur :: (G X, [String]) -> (G X, [String], [Def]) -> (G X, [String], [Def])
 trace_pur (g1, _) result@(g2, _, defs) =
   let test_g       = foldr Let g2 defs in
-  trace ("pur(fresh,unify,arg,constr,var,calls): " ++
-           show (calc g1) ++
-           " -> " ++
-           show (calc test_g)) result where
+  -- trace ("pur(fresh,unify,arg,constr,var,calls): " ++
+  --          show (calc g1) ++
+  --          " -> " ++
+  --          show (calc test_g)) $
+  result where
 
       (a1,b1,c1,d1,e1,f1) <+> (a2,b2,c2,d2,e2,f2) = (a1+a2,b1+b2,c1+c2,d1+d2,e1+e2,f1+f2)
 

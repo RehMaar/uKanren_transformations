@@ -40,6 +40,14 @@ data G a =
   | Invoke Name [Term a]
   | Let Def (G a) deriving (Eq, Ord)
 
+instance Functor G where
+  fmap f (t :=: u)          = (f <$> t) :=:  (f <$> u)
+  fmap f (g :/\: h)         = (f <$> g) :/\: (f <$> h)
+  fmap f (g :\/: h)         = (f <$> g) :\/: (f <$> h)
+  fmap f (Fresh name g)     = Fresh name (f <$> g)
+  fmap f (Invoke name args) = Invoke name $ map (f <$>) args
+  fmap f (Let def g)        = Let def (f <$> g)
+
 freshVars :: [Name] -> G t -> ([Name], G t)
 freshVars names (Fresh name goal) = freshVars (name : names) goal
 freshVars names goal = (names, goal)
@@ -102,12 +110,12 @@ instance Show a => Show (Term a) where
     case name of
       "Nil" -> "[]"
       "Cons" -> let [h,t] = ts
-                in printf "%s : %s" (show h) (show t)
+                in printf "(%s : %s)" (show h) (show t)
       x | (x == "s" || x == "S") && length ts == 1 -> printf "S(%s)" (show $ head ts)
       x | (x == "o" || x == "O") && null ts -> "O"
       _ -> case ts of
              [] -> name
-             _  -> printf "C %s [%s]" name (unwords $ map show ts)
+             _  -> printf "C %s [%s]" name (intercalate ", " $ map show ts)
 
 instance Show a => Show (G a) where
   show (t1 :=:  t2)               = printf "%s = %s" (show t1) (show t2)
@@ -116,7 +124,7 @@ instance Show a => Show (G a) where
   show (Fresh name g)             =
     let (names, goal) = freshVars [name] g in
     printf "fresh %s (%s)" (unwords $ map show $ reverse names) (show goal)
-  show (Invoke name ts)           = printf "%s %s" name (unwords $ map show ts)
+  show (Invoke name ts)           = printf "%s %s" name (unwords $ map (\x -> if ' ' `elem` x then printf "(%s)" x else x) $ map show ts)
   show (Let (name, args, body) g) = printf "let %s %s = %s in %s" name (unwords args) (show body) (show g)
 
 class Dot a where

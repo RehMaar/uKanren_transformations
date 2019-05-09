@@ -16,31 +16,36 @@ type Delta = [S]
 type P     = Name -> Def
 type Gamma = (P, Iota, Delta)
 
--- Unification
-unify :: Maybe Sigma -> Ts -> Ts -> Maybe Sigma
-unify Nothing _ _ = Nothing
-unify st@(Just subst) u v =
+unifyG :: (S -> Ts -> Maybe Sigma -> Maybe Sigma)
+          -> Maybe Sigma -> Ts -> Ts -> Maybe Sigma
+unifyG _ Nothing _ _ = Nothing
+unifyG f st@(Just subst) u v =
+  -- trace (printf "Unifying\n%s\nwith\n%s\nin\n%s" (show u) (show v) (show st)) $
   unify' (walk u subst) (walk v subst)  where
     unify' (V u') (V v') | u' == v' = Just subst
-    unify' (V u') t = occursCheck u' t $ Just $ (u', v) : subst
-    unify' t (V v') = occursCheck v' t $ Just $ (v', u) : subst
+    unify' (V u') t = f u' t $ Just $ (u', v) : subst
+    unify' t (V v') = f v' t $ Just $ (v', u) : subst
     unify' (C a as) (C b bs) | a == b && length as == length bs =
-      foldl (\ st' (u', v') -> unify st' u' v') st $ zip as bs
+      foldl (\ st' (u', v') -> unifyG f st' u' v') st $ zip as bs
     unify' _ _ = Nothing
     walk x@(V v') s =
       case lookup v' s of
         Nothing -> x
         Just t  -> walk t s
     walk u' _ = u'
-    occursCheck u' t s = if elem u' $ fv t
-                         then Nothing
-                              --error "Occurs check!"
-                         else s
+
+-- Unification
+unify :: Maybe Sigma -> Ts -> Ts -> Maybe Sigma
+unify = unifyG occursCheck where
+  occursCheck u' t s = if elem u' $ fv t then Nothing else s
+
+unifyNoOccursCheck :: Maybe Sigma -> Ts -> Ts -> Maybe Sigma
+unifyNoOccursCheck = unifyG (\_ _ -> id)
 
 ---- Interpreting syntactic variables
 infix 9 <@>
 (<@>) :: Iota -> Tx -> Ts
-(_, i) <@> (V x)    = i x
+i <@> (V x) = app i x
 i <@> (C c ts) = C c $ map (i<@>) ts
 
 showInt :: Iota -> String
@@ -77,6 +82,9 @@ o sigma theta =
         -- The same: (substitute sigma <$>) <$> theta ++ sigma
     [] -> (\ (s, ts) -> (s, substitute sigma ts)) <$> theta ++ sigma
     _  -> error "Non-disjoint domains in substitution composition"
+
+dotSigma :: Sigma -> String
+dotSigma s = printf " [ %s ] " (intercalate ", " (map (\(x,y) -> printf "%s &rarr; %s" (dot $ V x) (dot y)) s))
 
 showSigma :: Sigma -> String
 showSigma s = printf " [ %s ] " (intercalate ", " (map (\(x,y) -> printf "%s &rarr; %s" (show $ V x) (show y)) s))
