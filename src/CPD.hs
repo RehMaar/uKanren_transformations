@@ -1,4 +1,4 @@
-
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -34,6 +34,45 @@ data SldTree = Fail
              | Conj SldTree [DescendGoal] E.Sigma
              | Leaf [DescendGoal] E.Sigma E.Gamma
 
+
+data SldTreeInner = FFail
+                  | SSuccess E.Sigma
+                  | OOr [(ClauseNum, SldTreeInner)] E.Sigma
+                  | CConj SldTree [DescendGoal] E.Sigma
+                  | LLeaf [DescendGoal] E.Sigma E.Gamma
+
+innerToSLD :: SldTreeInner -> SldTree
+innerToSLD FFail = Fail
+innerToSLD SSuccess s = Success s
+innerToSLD OOr ct s = Or ((. fst) <$> ct) s
+
+instance Show SldTree where
+    show Fail = "Fail"
+    show (Success s) = "Success " ++ show s
+    show (Or ss s) = "Or {" ++ show ss ++ " " ++ show s ++ "}"
+    show (Conj sld dg s) = "Conj {" ++ show sld ++ " " ++ show dg ++ " " ++ show s ++ "}"
+    show (Leaf dgs d gm) = "Leaf {" ++ show dgs ++ " " ++ show d ++ " " ++ showG gm ++ "}"
+      where showG (p, i, d) = "Gamma"
+
+
+type AtomPos = Int
+type ClauseNum = Int
+-- By definition, characteristic path is a list of so called *steps*
+-- l_i and c_i where
+--    l_i -- the position of selected literal in G_i
+--           (G_0 .. G_n -- goals of SLD derivation D of P \cup {G_0})
+--    c_i -- the number of the clause chosen to resolve G_i
+--           ! But if selected is literal is \neg p (\neg t), c_i is the predicate p
+--           ! TODO: what does it mean?
+type ChStep = (AtomPos, ClauseNum)
+type ChPath = [ChStep]
+-- ChTree is a set containing the ChPaths of the non-failing
+-- SLD derivations associated with the branches of SLD-tree.
+type ChTree = [ChPath]
+
+--
+-- Выбор атома для раскрытия в дереве.
+--
 select :: [DescendGoal] -> Maybe DescendGoal
 select = find (\x -> isSelectable embed (getCurr x) (getAncs x))
 
@@ -57,6 +96,7 @@ sldResolution :: [G S] -> E.Gamma -> E.Sigma -> SldTree
 sldResolution goal gamma subst =
   sldResolutionStep (map (\x -> Descend x Set.empty) goal) gamma subst Set.empty True
 
+{-
 sldResolutionStep :: [DescendGoal] -> E.Gamma -> E.Sigma -> Set [G S] -> Bool -> SldTree
 sldResolutionStep gs env@(p, i, d@(temp:_)) s seen isFirstTime =
   -- trace (printf "\nResolution step:\ngs: \n%s" $ intercalate "\n" (map show gs)) $
@@ -114,8 +154,106 @@ sldResolutionStep gs env@(p, i, d@(temp:_)) s seen isFirstTime =
                 (selectNext rs)
         ns ->
           Leaf gs s env
+-}
+
+selectNext :: [DescendGoal] -> Maybe ([DescendGoal], DescendGoal, [DescendGoal])
+selectNext gs =
+  let (ls, rs) = selecter gs in
+  if null rs then Nothing else Just (ls, head rs, tail rs)
+
+extend :: E.Iota -> (X, Ts) -> E.Iota
+extend = uncurry . E.extend
+
+-- Which rule was choosen to unfold?
+unfold :: G S -> E.Gamma ->  (G S, E.Gamma, ClauseNum)
+unfold g@(Invoke f as) env@(p, i, d)
+  | (_, fs, body) <- p f
+  , length fs == length as =
+    let i' = foldl extend i (zip fs as)
+        (g', env', _) = E.preEval' (p, i', d) body
+      -- Don't understand preEval'?
+      -- Which rule was choosen?
+    in (g', env', 0)
+  | otherwise = error "Unfolding error: different number of factual and actual arguments"
+-- Zero?
+unfold g env = (g, env, 0)
+
+sldResolutionStep :: [DescendGoal] -> E.Gamma -> E.Sigma -> Set [G S] -> Bool -> SldTree
+sldResolutionStep gs env@(p, i, d@(temp:_)) s seen isFirstTime 
+   | variantCheck (map getCurr gs) seen = Leaf gs s env
+   | Just (ls, Descend g ancs, rs) <- selectNext gs =
+       -- l_i -- length ls -- position of goal to unfold
+       -- c_i -- ??        -- number of clause which was used to unfold
+       let (g', env', ci') = unfold g env
+           --(li, ci) = (length ls, ci') -- ChStep
+       in go g' env' ls rs g ancs isFirstTime
+  --trace (printf "\nResolution step:\ngs: \n%s" $ intercalate "\n" (map show gs)) $
+  where
+    go g' env' ls rs g ancs isFirstTime =
+      --trace (printf "\nGoal: %s" (show g')) $
+      let normalized = normalize g'
+          unified = mapMaybe (unifyStuff s) normalized
+          newSeen = Set.insert (map getCurr gs) seen
+          addDescends xs s = substituteDescend s (ls ++ map (\x -> Descend x (Set.insert g ancs)) xs ++ rs)
+      in
+      case unified of
+        [] -> Fail
+        ns | length ns == 1 || isFirstTime -> Or (step <$> ns) s
+          where
+            step (xs, s') | null xs && null rs = Success s'
+                          | otherwise = let newDescends = addDescends xs s'
+                                            tree        = sldResolutionStep newDescends env' s' newSeen (length ns /= 1)
+                                          in Conj tree  newDescends s'
+        ns | not (null rs) ->
+          maybe (Leaf gs s env)
+                (\(ls', Descend nextAtom nextAtomsAncs, rs')  ->
+                        let (g'', env'', li) = unfold nextAtom env in
+                        go g'' env'' (ls ++ (Descend (getCurr $ head rs) ancs : ls')) rs' g nextAtomsAncs False
+                )
+                (selectNext rs)
+        ns -> Leaf gs s env
 
 
+sldResolutionStep' :: [DescendGoal] -> E.Gamma -> E.Sigma -> Set [G S] -> Bool -> (SldTree, ChTree)
+sldResolutionStep' gs env@(p, i, d@(temp:_)) s seen isFirstTime
+   | variantCheck (map getCurr gs) seen = (Leaf gs s env, [])
+   | Just (ls, Descend g ancs, rs) <- selectNext gs =
+       let (g', env', ci') = unfold g env
+           chStep = (succ $ length ls, ci') :: ChStep -- ChStep
+           (t, c) = go g' env' ls rs g ancs isFirstTime
+       in
+       trace ("\nStep: " ++ show gs ++ "\n")
+       (t, [chStep] : c)
+  where
+    go g' env' ls rs g ancs isFirstTime =
+      let normalized = trace ("\nGoal: " ++ show g' ++ "\n") normalize g'
+          unified = (\t -> trace ("\nUnified: " ++ show t ++ "\n") t) $  mapMaybe (unifyStuff s) $ trace ("\nNormalized: " ++ show normalized ++ "\n") normalized
+          newSeen = Set.insert (map getCurr gs) seen
+          addDescends xs s = substituteDescend s (ls ++ map (\x -> Descend x (Set.insert g ancs)) xs ++ rs)
+      in
+      case unified of
+        [] -> (Fail, [])
+        ns | length ns == 1 || isFirstTime ->
+          --Or (step <$> ns) s
+          let (ts, cs) = unzip (step <$> ((\s -> trace ("\nNs: " ++ show s ++ "\n") s) ns))
+          in (Or ts s, concat cs)
+          where
+            step (xs, s') | null xs && null rs = (Success s', [])
+                          | otherwise = let newDescends = addDescends xs s'
+                                            (tree, chtree) = sldResolutionStep' newDescends env' s' newSeen (length ns /= 1)
+                                          in (Conj tree  newDescends s', chtree)
+        ns | not (null rs) ->
+          maybe ((Leaf gs s env, []))
+                (\(ls', Descend nextAtom nextAtomsAncs, rs')  ->
+                        let (g'', env'', li) = unfold nextAtom env in
+                        go g'' env'' (ls ++ (Descend (getCurr $ head rs) ancs : ls')) rs' g nextAtomsAncs False
+                )
+                (selectNext rs)
+        ns -> (Leaf gs s env, [])
+
+--
+-- Нормализация выражений: переводит в КНФ, как я поняла.
+--
 normalize :: G S -> [[G S]] -- disjunction of conjunctions of calls and unifications
 normalize (f :\/: g) = normalize f ++ normalize g
 normalize (f :/\: g) = (++) <$> normalize f <*> normalize g
@@ -140,6 +278,8 @@ leaves (Conj ch  _ _) = leaves ch
 leaves (Leaf ds _ _)  = [map getCurr ds]
 leaves _ = []
 
+-- Множество результатнов:
+--  Подстановка, _ и _
 resultants :: SldTree -> [(E.Sigma, [G S], Maybe E.Gamma)]
 resultants (Success s)     = [(s, [], Nothing)]
 resultants (Or disjs _)    = concatMap resultants disjs
@@ -149,10 +289,23 @@ resultants Fail            = []
 
 topLevel :: G X -> SldTree
 topLevel goal =
-  let (goal', _, defs) = justTakeOutLets (goal, []) in
-  let gamma = E.updateDefsInGamma E.env0 defs in
-  let (logicGoal, gamma', names) = E.preEval' gamma goal' in
-  sldResolutionStep [Descend logicGoal Set.empty] gamma' E.s0 Set.empty True
+  let (goal', _, defs) = justTakeOutLets (goal, [])
+      gamma = E.updateDefsInGamma E.env0 defs
+      (logicGoal, gamma', names) = E.preEval' gamma goal'
+  in sldResolutionStep [Descend logicGoal Set.empty] gamma' E.s0 Set.empty True
+
+topLevel' :: G X -> (SldTree, ChTree)
+topLevel'  goal =
+  let (goal', _, defs) = justTakeOutLets (goal, [])
+      gamma = E.updateDefsInGamma E.env0 defs
+      (logicGoal, gamma', names) = E.preEval' gamma goal'
+  in sldResolutionStep' [Descend logicGoal Set.empty] gamma' E.s0 Set.empty True
+
+goalToDescendGoal goal =
+  let (goal', _, defs) = justTakeOutLets (goal, [])
+      gamma = E.updateDefsInGamma E.env0 defs
+      (logicGoal, gamma', _) = E.preEval' gamma goal'
+  in (Descend logicGoal Set.empty, gamma')
 
 mcs :: (Eq a, Show a) => [G a] -> [[G a]]
 mcs []     = []
