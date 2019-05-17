@@ -59,28 +59,29 @@ emptyIota :: Iota
 emptyIota = ([], error . printf "Empty interpretation on %s" . show)
 
 app :: Iota -> X -> Ts
-app = snd
---app (_, i) = i
+app (_, i) = i
 
 ---- Applying substitution
 substitute :: Sigma -> Ts -> Ts
-substitute s t@(V x) | Just tx <- lookup x s = substitute s tx
-                     | otherwise = t
-substitute s (C m ts) = C m (substitute s <$> ts)
+substitute s t@(V x) =
+  case lookup x s of
+    Just tx | tx /= t -> substitute s tx
+    _ -> t
+substitute s (C m ts) = C m $ map (substitute s) ts
 
 substituteGoal :: Sigma -> G S -> G S
-substituteGoal s (Invoke name as) = Invoke name (substitute s <$> as)
+substituteGoal s (Invoke name as) = Invoke name (map (substitute s) as)
 substituteGoal _ g = error $ printf "We have only planned to substitute into calls, and you are trying to substitute into:\n%s" (show g)
 
 substituteConjs :: Sigma -> [G S] -> [G S]
-substituteConjs = fmap . substituteGoal
+substituteConjs s = map $ substituteGoal s
+
 
 ---- Composing substitutions
 o :: Sigma -> Sigma -> Sigma
 o sigma theta =
-  case (fst <$> sigma) `intersect` (fst <$> theta) of
-        -- The same: (substitute sigma <$>) <$> theta ++ sigma
-    [] -> (\ (s, ts) -> (s, substitute sigma ts)) <$> theta ++ sigma
+  case map fst sigma `intersect` map fst theta of
+    [] -> map (\ (s, ts) -> (s, substitute sigma ts)) theta ++ sigma
     _  -> error "Non-disjoint domains in substitution composition"
 
 dotSigma :: Sigma -> String
@@ -97,19 +98,17 @@ preEval' :: Gamma -> G X -> (G S, Gamma, [S])
 preEval' = preEval []
  where
   preEval vars g@(_, i, _) (t1 :=: t2)    = (i <@> t1 :=: i <@> t2, g, vars)
-
-  preEval vars g           (g1 :/\: g2)   = let (g1', g' , vars' ) = preEval vars  g  g1
-                                                (g2', g'', vars'') = preEval vars' g' g2
-                                            in (g1' :/\: g2', g'', vars'')
-
-  preEval vars g           (g1 :\/: g2)   = let (g1', g' , vars')  = preEval vars  g  g1
-                                                (g2', g'', vars'') = preEval vars' g' g2
-                                            in (g1' :\/: g2', g'', vars'')
-
-  preEval vars   (p, i, y : d') (Fresh  x    g')   = preEval (y : vars) (p, extend i x (V y), d') g'
-  preEval vars g@(_, i, _)      (Invoke f    fs)   = (Invoke f (map (i <@>) fs), g, vars)
-  preEval vars e                (Let    def' g)    = let (g', e', vars') = preEval vars e g
-                                                     in (Let def' g', e', vars')
+  preEval vars g           (g1 :/\: g2)   = let (g1', g' , vars' ) = preEval vars  g  g1 in
+                                            let (g2', g'', vars'') = preEval vars' g' g2 in
+                                            (g1' :/\: g2', g'', vars'')
+  preEval vars g           (g1 :\/: g2)   = let (g1', g' , vars')  = preEval vars  g  g1 in
+                                            let (g2', g'', vars'') = preEval vars' g' g2 in
+                                            (g1' :\/: g2', g'', vars'')
+  preEval vars   (p, i, y : d') (Fresh x g') =
+    preEval (y : vars) (p, extend i x (V y), d') g'
+  preEval vars g@(_, i, _) (Invoke f fs)  = (Invoke f (map (i <@>) fs), g, vars)
+  preEval vars e           (Let    def' g) = let (g', e', vars') = preEval vars e g in
+                                             (Let def' g', e', vars')
 
 postEval' :: [X] -> G X -> G X
 postEval' as goal =
