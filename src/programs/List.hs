@@ -236,8 +236,83 @@ revAcco g =
        (
          (xs === nil &&& sx === acc) |||
          (fresh ["h", "t"]
-           (xs === h % t) &&&
-           call "revacco" [t, h % acc, sx]
+           ((xs === h % t) &&&
+            call "revacco" [t, h % acc, sx])
          )
        )
     ) g
+
+eqlist :: G a -> G a
+eqlist g =
+  let
+      xs = V "xs"
+      ys = V "ys"
+      h  = V "h"
+      as = V "as"
+      bs = V "bs"
+  in
+  Let
+    (def "eqlist" ["xs", "ys"]
+      (
+         (xs === nil &&& ys === nil) |||
+         (fresh ["h", "as", "bs"]
+            (xs === h % as &&& ys === h % bs &&&
+             call "eqlist" [as, bs])
+         )
+      )
+    ) g
+
+
+{-
+pathM([N]) <-
+pathM([X, Y | T] <- arc(X, Y), pathM([Y|T])
+arc(a, b) <-
+-}
+
+arco :: G a -> G a
+arco g =
+  let a = V "a"
+      b = V "b"
+      x = V "x"
+      y = V "y"
+  in Let
+    (def "arco" ["a", "b"]
+    (fresh ["x", "y"] (x === a &&& y === b))) $
+    g
+
+patho :: G a -> G a
+patho g =
+  let n = V "N"
+      l = V "L"
+      x = V "X"
+      y = V "Y"
+      t = V "T"
+      a = V "a"
+      b = V "b"
+  in Let
+    (def "patho" ["L"]
+      ((fresh ["N"] (l === n % nil)) |||
+      (fresh ["X", "Y", "T"] ((l === x % y % t ) &&&
+        call "arco" [x, y] &&& call "patho" [y % t]
+      )))
+    ) $ arco g
+
+composo ::G a -> G a
+composo g =
+  let x = V "x"
+      y = V "y"
+      t = V "t"
+      r = V "r"
+      e = V "e"
+      a = V "a"
+      b = V "b"
+      c = V "c"
+  in Let
+    (def "composo" ["a", "b", "c"]
+      ((fresh ["x", "t", "r"]
+        (a === x % t &&& b === x % r &&& c === x % nil)
+      ) |||
+      (fresh ["x", "y", "t", "r", "e"]
+        (a === x % t &&& b === y % r &&& c === e &&&
+        (call "composo" [t, r, e]))
+      ))) $ g
