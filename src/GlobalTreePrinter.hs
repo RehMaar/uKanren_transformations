@@ -6,7 +6,10 @@ import qualified Eval as E
 import Syntax
 import CPD hiding (Leaf)
 import GlobalControl
+import GlobalControlCA
 import Text.Printf
+import CharacteristicAtoms
+import CharacteristicTreesPrinter
 
 instance DotPrinter GlobalTree where
   -- labelNode t@(Node _ ch) i vs es ids = addChildren t ch i vs es ids -- (filter (\t -> not $ case t of Leaf _ _ -> True ; _ -> False) ch) i vs es ids
@@ -36,6 +39,18 @@ isLeaf _ = False
 
 instance Dot GlobalTree where
   -- dot (Leaf gs gen s)   = printf "L <BR/> %s <BR/> %s <BR/> %s" (dot $ getCurr gs) (dot gen) (dot s)
-  dot (Leaf gs _ _)  = printf "L <BR/> %s" (dot $ getCurr gs)
-  dot (Node gs gen _ _) = printf "N <BR/> %s <BR/> %s" (dot $ getCurr gs) (dot gen)
+  dot (Leaf gs _ s)  = printf "L <BR/> %s <BR/> %s" (show s) (dot $ getCurr gs)
+  dot (Node gs gen _ _) = printf "N <BR/> %s <BR/> %s" (dot $ getCurr gs) (show gen)
   dot (Prune gs _)  = printf "P <BR/> %s" (dot $ getCurr gs)
+
+
+
+instance DotPrinter GlobalTreeCh where
+  labelNode t@(NodeCh _ _ _ ch) i vs es ids = addChildren t ch i vs es ids
+  labelNode t                   i vs es ids = addLeaf     t    i vs es ids
+
+instance Dot GlobalTreeCh where
+  dot (LeafCh gs _ s)  = printf "L <BR/> %s <BR/> %s" ({-show s-} "") (dot $ getCurr gs)
+  dot (NodeCh (Descend atom _) gen _ _) = printf "N <BR/> %s <BR/> %s <BR/> %s" (dot (chAtom atom)) ({-show gen-} "") (show (chTree atom))
+  dot (PruneCh gs _  _)  = printf "P <BR/> %s" (dot $ getCurr gs)
+
