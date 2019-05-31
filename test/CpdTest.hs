@@ -31,6 +31,10 @@ import qualified OCanrenize as OC
 import Miscellaneous
 import Unify
 import Path
+import System.Process (system)
+import qualified CharacteristicAtoms as CA
+import CharacteristicTreesPrinter
+import qualified GlobalControlCA as GCA
 
 tests = do
   testEmbedding
@@ -87,35 +91,256 @@ manyAssertOne name expected f =
   mapM_ (assert name expected . f)
 
 
+--
+-- Goals for test
+--
+
+
+n2 = C "a" []
+n3 = C "b" []
+
+memTwo g =
+  let
+    a = C "a" []
+    b = C "b" []
+    d = C "d" []
+    c = C "c" []
+    t = V "T"
+  in Let
+     (def "memTwo" ["T"] $
+          ((call "membero" [a, a % b %c % d % t]) &&& (call "membero" [b, t]))
+     ) $ membero g
+
+memTwo' = memTwo $ fresh ["T"] $ call "memTwo" [V "T"]
+
+mem'' = membero $ fresh ["a", "b"] ((call "membero" [a, a % nil]) &&& (call "membero" [a, a % b % nil]))
+
+-- mem(a, [b | c | T]) &&& mem(a [c|d|T])
+mem' = membero $ fresh ["a", "b", "c", "t"] $ call "membero" [a', b' % c' % t'] &&& call "membero" [a', c' % d' % t']
+  where
+    t' = V "t"
+    a' = C "a" []
+    b' = C "b" []
+    d' = C "d" []
+    c' = C "c" []
+
+t' = V "t"
+a' = C "a" []
+b' = C "b" []
+d' = C "d" []
+c' = C "c" []
+
+-- mem(a, [b | c | T])
+mem1' = membero $ fresh ["a", "b", "c", "t"] $ call "membero" [a', b' % c' % t']
+-- mem(a, [c | d | T])
+mem2' = membero $ fresh ["a", "b", "c", "t"] $ call "membero" [a', c' % d' % t']
+
+rev1 = revAcco $
+        fresh ["a", "B", "R"]
+          (call "revacco" [V "a" % V "B", nil, V "R"])
+
+rev2 = revAcco $ fresh ["x", "y"] (call "revacco" [V "x", nil, V "y"])
+
+-- revacc([a|B], [], R)
+rev3 = revAcco $ fresh ["a", "B", "R"] (call "revacco" [C "a" [] % V "B", nil, V "R"])
+
+rev3'   = revAcco $ fresh ["a", "B", "R"] (call "revacco" [V "B", n2 % nil, V "R"])
+rev3''  = revAcco $ fresh ["a", "T", "H", "R"] (call "revacco" [V "T", V "H" % n2 % nil, V "R"])
+rev3''' = revAcco $ fresh ["a", "T", "A", "B", "R"] (call "revacco" [V "T", V "A" % V "B" % nil, V "R"])
+
+
 dA = doubleAppendo $
         fresh ["x", "y", "z", "r"]
            (call "doubleAppendo" [V "x", V "y", V "z", V "r"])
-
 dA2 = doubleAppendo $
         fresh ["x", "y", "z", "r", "p"]
            (call "doubleAppendo" [V "x" % V "p", V "y", V "z", V "r"])
 
-mem2 = membero $
-        fresh ["a", "b"] $
-        call "membero" [V "a", C "Cons" [V "a", V "b"]]
+eql1 = eqlist $ fresh ["a", "b"] $ call "eqlist" [n2 % n3 % nil, n2 % n3 % nil]
+eql2 = eqlist $ fresh ["a", "b"] $ call "eqlist" [n2 % n3 % nil, n3 % n2 % nil]
 
-mem1 = membero $
-        fresh ["a"] $
-        call "membero" [V "a", C "Cons" [V "a", nil]]
+mem3 = membero $ fresh ["a", "b"] $ call "membero" $ [n2,
+       n3 % n2 % n3 % n2 % n2 % nil]
 
-rev1 = revAcco $
-        fresh ["a", "B", "R"] $
-        call "revacco" [V "a" % V "B", nil, V "R"]
+mem1 = membero $ fresh ["a", "b"] $ call "membero" $ [n2, n2 % nil]
+mem2 = membero $ fresh ["a", "b"] $ call "membero" $ [n2, n2 % n3 % nil]
 
-rev2 = revAcco $
-        fresh ["a", "B", "R"] $
-        call "revacco" [V "B", V "a", V "R"]
+aa = C "a" []
+bb = C "b" []
+mem = membero $ fresh ["a", "b"] ((call "membero" $ [aa, aa% nil]) &&& (call "membero" $ [aa, aa % bb % nil]))
+
+memT = membero $ fresh ["a", "b"] ((call "membero" $ [V "a" , V "a" % nil]) &&& (call "membero" $ [V "a", V "a" % V "b" % nil]))
+
+memT1 = membero $ fresh ["a", "b"] $ call "membero" [aa, aa % V "b"]
+
+app1 = appendo $ fresh ["a", "X", "Y"] $ call "appendo" [aa % nil, V "X", V "Y"]
+app2 = appendo $ fresh ["a", "X", "Y"] $ call "appendo" [V "X", aa % nil, V "Y"]
+
+comp1 = composo $ fresh ["A", "X", "Y"] $ call "composo" [C "A" [] % nil, V "X", V "Y"]
+comp2 = composo $ fresh ["A", "X", "Y"] $ call "composo" [V "X", C "A" [] % nil, V "Y"]
+
+comp1C = composo $ fresh ["A", "X", "Y"] $ call "composo" [V "A", V "X", V "Y"]
+comp2C = composo $ fresh ["A", "X", "Y"] $ call "composo" [V "X", V "A" % nil, V "Y"]
+
+-- Results differ from the one in the article.
+pathA = patho $ fresh ["a"] $ call "patho" [V "a"]
+pathB = patho $ fresh ["a"] $ call "patho" [n2 % V "a"]
 
 
-(dlg@(Descend lg _), gamma) = goalToDescendGoal mem2
-(ngoal, ngamma, cn) = unfold lg gamma
-(p, i, df) = ngamma
+mem4 = membero $
+       fresh ["a", "b", "c"] $
+       call "membero" [C "a" [],
+       (C "a" []) % (C "b" [V "c"]) % nil]
 
+ml1 = maxLengtho $ fresh ["x", "l", "m"] (call "maxLengtho" [V "x", V "l", V "m"])
+
+commute = (appendo $ fresh ["a", "b", "c"] (call "appendo" [V "a", V "b", V "c"] &&& call "appendo" [V "b", V "a", V "c"]))
+
+
+test_goals1 = [dA, dA2, mem1, mem2, mem3, mem4, commute
+              , ml1, pathA, pathB, comp1C, comp2C, comp1, comp2, app1, app2
+              , memT1, memT, mem, eql1, eql2, mem1', mem2', rev3, rev2, rev1, rev3', rev3'', rev3'''
+              , mem', memTwo']
+
+t1 = (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" [nil, V "y", V "z", V "r"]))
+t2 = (maxLengtho $ fresh ["x", "l", "m"] (call "maxLengtho" [V "x", V "l", V "m"]))
+t3 = (maxo $ fresh ["x", "m"] (call "maxo" [V "x", V "m"]))
+
+-- app(A, B, C) &&& app(B, A, C)
+t4 = (appendo $ fresh ["a", "b", "c"] (call "appendo" [V "a", V "b", V "c"] &&& call "appendo" [V "b", V "a", V "c"]))
+
+t5 = (appendo $ listo $ fresh ["a", "b", "c"] (call "listo" [V "a"] &&&
+                                                                         call "listo" [V "b"] &&&
+                                                                         call "listo" [V "c"] &&&
+                                                                        call "appendo" [V "a", V "b", V "c"] &&&
+                                                                         call "appendo" [V "b", V "a", V "c"]))
+t6 = (inBotho $ fresh ["x", "l"] (call "inBotho" [V "x", (C "a" [] % nil), V "l" ]))
+t7 = (copycopy $ fresh ["l", "l1", "l2"] (call "copycopy" [V "l", V "l1", V "l2"]))
+
+test_goals2 = [t1, t2, t3, t4, {-t5,-} t6, t7]
+
+checkTreeSize goal = (fst3 $ GCA.topLevelCA goal) `GCA.isBigger` (fst3 $ GC.topLevel goal)
+checkTreeSize' goal = (fst3 $ GCA.topLevelCA goal) `GCA.isLess` (fst3 $ GC.topLevel goal)
+
+isGCACorrect = not (any checkTreeSize (test_goals2 ++ test_goals1))
+
+anyTreeIsBetter = any checkTreeSize' (test_goals2 ++ test_goals1)
+
+---
+testDepth goal = let
+   gt = fst3 $ GC.topLevel goal
+   gtCA = fst3 $ GCA.topLevelCA goal
+  in (GC.depthGT gt, GCA.depthGT gtCA)
+
+--
+-- Find SLD Inner tree and print this to a '.dot' file.
+--
+test' name g = printTree (name ++ ".dot") $ CA.topLevel' g
+
+getCh = CA.sldToChTree . CA.topLevel'
+
+testGenCh t1 t2 = CA.genChTree (getCh t1) (getCh t2)
+
+printToPdf name t = do
+    let dotfilename = name ++ ".dot"
+    let pdffilename = name ++ ".pdf"
+    printTree dotfilename t
+    system $ "dot -Tpdf '" ++ dotfilename ++ "' > '" ++ pdffilename ++ "'"
+
+testGlobal name goal = do
+  let gtca = fst3 $ GCA.topLevelCA goal
+  let gt = fst3 $ GC.topLevel goal
+  printToPdf name gt
+  printToPdf (name ++ "CA") gtca
+
+--
+-- Print SLD tree and its characteristic tree.
+--
+printSldAndCh goals = forM_ (zip goals [1..]) $ \(g, i) -> do
+  let t = CA.topLevel' g
+  let a = CA.sldToChTree t
+  printTree (show i ++ ".dot") t
+  printTree (show i ++ "inner.dot") a
+
+--
+-- Open SldTree pdf file
+--
+openSldInPdf t = do
+    let name = "/tmp/ukanrentesttree"
+    let dotfilename = name ++ ".dot"
+    let pdffilename = name ++ ".pdf"
+    printTree dotfilename t
+    system $ "dot -Tpdf '" ++ dotfilename ++ "' > '" ++ pdffilename ++ "'"
+    system $ "zathura '" ++ pdffilename ++ "'"
+    system $ "rm '" ++ pdffilename ++ "' '" ++ dotfilename ++ "'"
+
+--
+-- Print sld tree for each node of Global Tree.
+--
+{-
+printSldFromGT' :: Int -> GC.GlobalTreeCh -> IO ()
+printSldFromGT' _ (GC.LeafCh _ _ _) = pure ()
+printSldFromGT' n (GC.NodeCh _ _ sld ts) = do
+  printTree (show n ++ ".dot") sld
+  sequenceA (uncurry printSldFromGT' <$> zip [n + 1..] ts)
+  pure ()
+
+printSldFromGT = printSldFromGT' 0
+-}
+
+(rev3l, gm, _) = GCA.goalToLogicGoal rev3
+(rev3l', gm', _) = GCA.goalToLogicGoal rev3'
+(rev3l'', gm'', _) = GCA.goalToLogicGoal rev3''
+(rev3l''', gm''', _) = GCA.goalToLogicGoal rev3'''
+
+gls1 = [([rev3l], gm), ([rev3l'], gm')]
+gls2 = [([rev3l], gm), ([rev3l'], gm'), ([rev3l''], gm'')]
+
+testCh1 =
+  let ch1 = CA.sldToChTree $ CA.topLevel' mem1'
+      ch2 = CA.sldToChTree $ CA.topLevel' mem2'
+      resch = CA.ChRoot [CA.ChBranch (1, 2) [CA.ChBranch (1,2) [CA.ChNode (1,1), CA.ChBranch (1,2) []]]]
+  in  ch1 == ch2
+   && ch1 == resch
+
+-- Test abstract
+testACH goal = let
+    (lgoal, gm, _) = GCA.goalToLogicGoal goal
+    in trace ("Logic goal: " ++ show lgoal ++ "\n") $ let
+    sld = CA.topLevel' goal
+    in trace ("SLD: " ++ show sld ++ "\n") $ let
+    chtree = CA.sldToChTree sld
+    in trace ("ChTree: " ++ show chtree ++ "\n") $ let
+    chatom = (CA.ChAtom lgoal chtree) :: CA.ChAtom S
+    in trace ("ChAtom: " ++ show chatom++ "\n") $ let
+    seen = [chatom]
+    ancs = Set.singleton chatom
+    (subst, bodies) = partition GCA.isResultantSubst $ GCA.resultants sld
+    in trace ("Resultants: " ++ concatMap (show . CA.resAtom) bodies ++ "\n") $ let
+--  in GCA.abstractChild'' seen ancs bodies
+  in undefined
+
+
+-- CA.ChTrees
+testMsgTrees = [CA.msgChTrees [cht1, cht2] == cht1
+              , CA.msgChTrees [cht1, cht3] == CA.ChRoot []
+              , CA.msgChTrees [cht2, cht3] == CA.ChRoot []
+              , CA.msgChTrees [cht2, cht4] == cht1]
+
+testHomeoTrees = [CA.homeoTree cht1 cht2 
+            , CA.homeoTree cht1 cht3  == False
+            , CA.homeoTree cht2 cht3  == False
+            ]
+
+testMoreGeneralTrees = [CA.moreGeneralTree cht1 cht2
+            , CA.moreGeneralTree cht1 cht3 == False
+            , CA.moreGeneralTree cht2 cht3 == False
+            ]
+
+cht1 = CA.ChRoot [CA.ChNode (1, 3)]
+cht2 = CA.ChRoot [CA.ChBranch (1, 3) [CA.ChNode (2,4)]]
+cht3 = CA.ChRoot [CA.ChNode (1,3), CA.ChNode (1, 4)]
+cht4 = CA.ChRoot [CA.ChBranch (1, 3) [CA.ChNode (2, 4), CA.ChNode (2,5)]]
 
 {-
 printStuff = do
@@ -193,27 +418,27 @@ doOcanrenize = do
   -- ocanren "pathElem" Path.queryElem $ Just Path.env
   -- ocanren "pathElem1" Path.queryElem1 $ Just Path.env
 
-  ocanren "path" Path.query1 $ Just Path.env
+ --  ocanren "path" Path.query1 $ Just Path.env
 
 
 {------------------------------------
   Working examples
 -------------------------------------}
   ocanren "appNil"          (doubleAppendo $ fresh ["y", "z", "r"] (call "doubleAppendo" [nil, V "y", V "z", V "r"])) Nothing
-  ocanren "double"          (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" $ map V ["x", "y", "z", "r"])) Nothing
-  ocanren "revAcco"         (revAcco $ fresh ["x", "y"] (call "revacco" [V "x", nil, V "y"])) Nothing
-  ocanren "check5"          (check5 $ fresh ["x"] (call "check5" [V "x"])) Nothing
-  ocanren "checkList5"      (checkList5 $ fresh ["x"] (call "checkList5" [V "x"])) Nothing
-  ocanren "checkListOther5" (checkList5' $ fresh ["x"] (call "checkList5" [V "x"])) Nothing
-  ocanren "inBotho"         (inBotho $ fresh ["x", "l"] (call "inBotho" [V "x", C "a" [] % nil, V "l" ])) Nothing
-  ocanren "maxLengtho"      (maxLengtho $ fresh ["x", "l", "m"] (call "maxLengtho" [V "x", V "l", V "m"])) Nothing
-  ocanren "maxo"            (maxo $ fresh ["x", "m"] (call "maxo" [V "x", V "m"])) Nothing
+  --ocanren "double"          (doubleAppendo $ fresh ["x", "y", "z", "r"] (call "doubleAppendo" $ map V ["x", "y", "z", "r"])) Nothing
+  --ocanren "revAcco"         (revAcco $ fresh ["x", "y"] (call "revacco" [V "x", nil, V "y"])) Nothing
+  --ocanren "check5"          (check5 $ fresh ["x"] (call "check5" [V "x"])) Nothing
+  --ocanren "checkList5"      (checkList5 $ fresh ["x"] (call "checkList5" [V "x"])) Nothing
+  --ocanren "checkListOther5" (checkList5' $ fresh ["x"] (call "checkList5" [V "x"])) Nothing
+  --ocanren "inBotho"         (inBotho $ fresh ["x", "l"] (call "inBotho" [V "x", C "a" [] % nil, V "l" ])) Nothing
+  --ocanren "maxLengtho"      (maxLengtho $ fresh ["x", "l", "m"] (call "maxLengtho" [V "x", V "l", V "m"])) Nothing
+  --ocanren "maxo"            (maxo $ fresh ["x", "m"] (call "maxo" [V "x", V "m"])) Nothing
 {-------------------------------------}
 
 
-  ocanren "unify" Unify.query $ Just Unify.env
-  ocanren "desert"          Desert.query'' $ Just Desert.env
-  ocanren "desertSecond"    Desert.query' $ Just Desert.env
+  --ocanren "unify" Unify.query $ Just Unify.env
+  --ocanren "desert"          Desert.query'' $ Just Desert.env
+  --ocanren "desertSecond"    Desert.query' $ Just Desert.env
   -- ocanren "smallBridge"     (game2 $ fresh ["a", "b"] (call "getAnswer'" [V "a", C "some" [V "b"]])) $ Just Bridge.env
   -- ocanren "bigBridge"       (topLevelBigBridge $ fresh ["a", "b"] (call "tlBigBridge" [V "a", V "b"])) $ Just Bridge.env
 
@@ -229,6 +454,21 @@ doOcanrenize = do
         let f = residualizationTopLevel tree
         let pur = purification (f, vident <$> reverse names)
         OC.topLevel (printf "%s.ml" filename) "topLevel" env pur
+
+
+ocanrenToFile filename goal = do
+    let (tree, logicGoal, names) = GC.topLevel goal
+    -- let f = residualizeGlobalTree tree
+    -- let pur = purification (f $ vident <$> logicGoal, vident <$> reverse names)
+    let f = residualizationTopLevel tree
+    let pur = purification (f, vident <$> reverse names)
+    OC.topLevel (printf "%s.ml" filename) "topLevel" Nothing pur
+
+ocanrenToFileGCA filename goal = do
+    let (tree, logicGoal, names) = GCA.topLevelCA goal
+    let f = residualizationTopLevel (GCA.globalChToGlobal tree)
+    let pur = purification (f, vident <$> reverse names)
+    OC.topLevel (printf "%s.ml" filename) "topLevel" Nothing pur
 
 doResidualization = do
   purify "membero" $ membero $ fresh ["a"] (call "membero" [V "a", V "a" % nil])
