@@ -184,7 +184,7 @@ generalizeTerm (v:vs) (s1, s2) (t1, t2) = ((V v, (v, t1):s1, (v, t2):s2), vs)
 generalizeGoals :: [S] -> [G S] -> [G S] -> ([G S], Generalizer, Generalizer, [S])
 generalizeGoals s as bs =
   let res@(msg_, s1_, s2_, _) = refine $ generalize s ([], []) as bs in
-  -- trace ("Generalizing\nFirst:  " ++ show as ++ "\nSecond: " ++ show bs ++ "\nmsg: " ++ show msg_ ++ "\ns1:  " ++ show s1_ ++ "\ns2:  " ++ show s2_) $
+  --trace ("Generalizing\nFirst:  " ++ show as ++ "\nSecond: " ++ show bs ++ "\nmsg: " ++ show msg_ ++ "\ns1:  " ++ show s1_ ++ "\ns2:  " ++ show s2_) $
   assert (map (substitute s2_) msg_ == bs &&
           map (substitute s1_) msg_ == as
          ) $

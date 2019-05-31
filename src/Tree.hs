@@ -22,7 +22,6 @@ type Renaming = [(S, S)]
 ---- Generalization
 type Generalizer = E.Sigma
 
-
 -- TODO remove
 conj :: [G a] -> G a
 conj [] = error "Empty conjunction"

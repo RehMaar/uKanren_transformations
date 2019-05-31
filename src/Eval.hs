@@ -104,11 +104,10 @@ preEval' = preEval []
   preEval vars g           (g1 :\/: g2)   = let (g1', g' , vars')  = preEval vars  g  g1 in
                                             let (g2', g'', vars'') = preEval vars' g' g2 in
                                             (g1' :\/: g2', g'', vars'')
-  preEval vars   (p, i, y : d') (Fresh x g') =
-    preEval (y : vars) (p, extend i x (V y), d') g'
-  preEval vars g@(_, i, _) (Invoke f fs)  = (Invoke f (map (i <@>) fs), g, vars)
-  preEval vars e           (Let    def' g) = let (g', e', vars') = preEval vars e g in
-                                             (Let def' g', e', vars')
+  preEval vars   (p, i, y : d') (Fresh x g') = preEval (y : vars) (p, extend i x (V y), d') g'
+  preEval vars g@(_, i, _) (Invoke f fs)     = (Invoke f (map (i <@>) fs), g, vars)
+  preEval vars e           (Let    def' g)   = let (g', e', vars') = preEval vars e g in
+                                               (Let def' g', e', vars')
 
 postEval' :: [X] -> G X -> G X
 postEval' as goal =
