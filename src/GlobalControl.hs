@@ -41,7 +41,7 @@ part = CPD.mcs
 
 abstract :: Descend [G S] -> [G S] -> E.Delta -> ([([G S], T.Generalizer)], E.Delta)
 abstract descend goals d =
-  trace (printf "\nAbstracting \n%s\nDescend\n%s\n" (show goals) (show descend)) $
+  -- trace (printf "\nAbstracting \n%s\nDescend\n%s\n" (show goals) (show descend)) $
   let qCurly = part goals in
   go (map (\x -> (x, [])) qCurly) d
    where
@@ -61,17 +61,19 @@ abstract descend goals d =
 whistle :: Descend [G S] -> [G S] -> Maybe [G S]
 whistle descend m =
   let res = find (\b -> CPD.embed b m && not (CPD.isVariant b m)) (sequence descend) in
-  trace (printf "Whistling\n%s\n%s" (show m) (show res)) $
+  -- trace (printf "Whistling\n%s\n%s" (show m) (show res)) $
   res
 
 generalize :: [G S] -> [G S] -> E.Delta -> ([([G S], T.Generalizer)], E.Delta)
 generalize m b d =
-  trace "GENERALIZE" $
-  let ((m1, m2), delta) = CPD.split d b m in
-  let (generalized, _, gen, delta') = D.generalizeGoals d m1 b in
-  (map (project gen) $ CPD.mcs generalized ++ CPD.mcs m2, delta')
+  -- trace "GENERALIZE" $
+  let ((m1, m2), genOrig, delta) = CPD.split d b m in
+  -- let (generalized, gen', gen, delta') = D.generalizeGoals d m1 b in
+  -- trace ("\n\tGen': " ++ show gen' ++ " Gen: " ++ show gen ++ " GenOrig: " ++ show genOrig ++ " M1: " ++ show m1 ++ " B: " ++ show b) $
+  let genTrue = genOrig in
+  (map (project genTrue) (CPD.mcs m1) ++ map (project []) (CPD.mcs m2) , delta)
     where
-      project gen goals = (goals, {- filter (\(x, _) -> (V x) `elem` concatMap CPD.vars goals) -} gen)
+      project gen goals = (goals, {- filter (\(x, _) -> (V x) `elem` concatMap CPD.vars goals)-} gen)
 
 abstractChild :: Set [G S] -> (E.Sigma, [G S], Maybe E.Gamma) -> [(E.Sigma, [G S], T.Generalizer, E.Gamma)]
 abstractChild _ (_, _, Nothing) = []
@@ -94,13 +96,13 @@ topLevel goal =
     go nodes d@(CPD.Descend goal ancs) gamma subst defs generalizer =
       -- if head (trd3 gamma) <= 21
       -- then
-        trace (printf "GlobalLevel:\n%s\n" $ show goal) $
+        -- trace (printf "GlobalLevel:\n%s\n" $ show goal) $
         let subst = E.s0 in
         let sldTree = CPD.sldResolution goal gamma subst in
         -- trace (printf "\n\nSLDDDD\n%s\n\n%s\n\n\n" (show goal) $ simplyPrintTree sldTree) $
         let (substs, bodies) = partition (null . snd3) $ CPD.resultants sldTree in
         let abstracted = map (abstractChild ancs) bodies in
-        trace (printf "\nResultants:\n%s\nAbstracted:\n%s\n" (intercalate "\n" $ map (show . snd3) bodies) (intercalate "\n" $ map (concatMap (show . trd4)) abstracted) ) $
+        -- trace (printf "\nResultants:\n%s\nAbstracted:\n%s\n" (intercalate "\n" $ map (show . snd3) bodies) (intercalate "\n" $ map (concatMap (show . trd4)) abstracted) ) $
         let (toUnfold, toNotUnfold, newNodes) =
                 foldl (\ (yes, no, seen) gs ->
                             let (variants, brandNew) = partition (\(_, g, _, _) -> null g || any (CPD.isVariant g) seen) gs in
