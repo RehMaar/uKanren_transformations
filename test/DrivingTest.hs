@@ -15,6 +15,6 @@ tc'  = drive (reverso $ fresh ["q", "r"] (call "reverso" [V "q", V "r"]))
 tc'' = drive (revAcco $ fresh ["q", "s"] (call "revacco" [V "q", nil, V "s"]))
 
 
-tree   = snd' tc
-tree'  = snd' tc'
-tree'' = snd' tc''
+--tree   = snd' tc
+--tree'  = snd' tc'
+--tree'' = snd' tc''

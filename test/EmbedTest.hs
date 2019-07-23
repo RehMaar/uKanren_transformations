@@ -22,4 +22,4 @@ g3 = [checkPerson([C "St" [C "T" [], C "T" [], C "T" []],V 36,C "T" []]) , moveP
 
 test = embedGoals g1 g2
 
-test' = map (map trd') (split (map (\ x -> (undefined, undefined, x)) g3) g1)
+--test' = map (map trd') (split (map (\ x -> (undefined, undefined, x)) g3) g1)
