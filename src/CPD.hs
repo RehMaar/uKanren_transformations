@@ -20,6 +20,7 @@ import Debug.Trace
 import Data.List
 import qualified Driving as D
 import qualified Data.Set as Set
+import qualified Tree as T
 
 data Descend a = Descend { getCurr :: a, getAncs :: Set a } deriving (Eq)
 
@@ -33,6 +34,16 @@ data SldTree = Fail
              | Or [SldTree] E.Sigma
              | Conj SldTree [DescendGoal] E.Sigma
              | Leaf [DescendGoal] E.Sigma E.Gamma
+
+sldDepth :: SldTree -> Integer
+sldDepth (Conj sld _ _) = 1 + sldDepth sld
+sldDepth (Or slds _) = 1 + foldl (\acc sld -> max acc (sldDepth sld)) 0 slds
+sldDepth _ = 1
+
+sldLeafs :: SldTree -> Integer
+sldLeafs (Or slds _) = sum (sldLeafs <$> slds)
+sldLeafs (Conj sld _ _) = sldLeafs sld
+sldLeafs _ = 1
 
 select :: [DescendGoal] -> Maybe DescendGoal
 select = find (\x -> isSelectable embed (getCurr x) (getAncs x))
@@ -213,28 +224,28 @@ complementSubconjs xs ys =
 -- TODO : implemented literally according to the definition, may be inefficient. Look at the graph approach again.
 -- elem q is minimally general of Q iff there doesn't exist another elem q' \in Q which is a strict instance (q' = q \Theta)
 -- isStrictInst q t iff q = t \Theta
-minimallyGeneral :: (Show a, Ord a) => [[G a]] -> [G a]
+minimallyGeneral :: (Show a, Ord a) => [([G a], T.Generalizer)] -> ([G a], T.Generalizer)
 minimallyGeneral xs =
   -- trace (printf "minimallyGeneral %s" $ show xs) $
   go xs xs
   where
     go [x] _ = x
-    go (x:xs) ys | any (\g -> isStrictInst x g) ys = go xs ys
+    go (x:xs) ys | any (\g -> isStrictInst (fst x) (fst g)) ys = go xs ys
     go (x:xs) _ = x
     go [] _ = error "Empty list of best matching conjunctions"
 
-bmc :: E.Delta -> [G S] -> [[G S]] -> ([[G S]], E.Delta)
+bmc :: E.Delta -> [G S] -> [[G S]] -> ([([G S], T.Generalizer)],  E.Delta)
 bmc d q [] = ([], d)
 bmc d q (q':qCurly) | msgExists q q' =
   -- trace "bmc" $
   let (generalized, _, gen, delta) = D.generalizeGoals d q q' in
-  trace (printf "Generalizing\nq:   %s\nq':  %s\nRes: %s\nGen: %s\ndelta: %s\n" (show q) (show q') (show generalized) (show gen) (show $ head d)) $
+  -- trace (printf "Generalizing\nq:   %s\nq':  %s\nRes: %s\nGen: %s\ndelta: %s\n" (show q) (show q') (show generalized) (show gen) (show $ head d)) $
   let (gss, delta') = bmc delta q qCurly in
-  (generalized : gss, delta')
+  ((generalized, gen) : gss, delta')
 bmc d q (q':qCurly) = trace "why msg does not exist?!" $ bmc d q qCurly
 -- bmc d q qCurly = [(\(x,_,_,_) -> x) $ D.generalizeGoals d q q' | q' <- qCurly, msgExists q q']
 
-split :: E.Delta -> [G S] -> [G S] -> (([G S], [G S]), E.Delta)
+split :: E.Delta -> [G S] -> [G S] -> (([G S], [G S]), T.Generalizer, E.Delta)
 split d q q' = -- q <= q'
   -- trace (printf "splitting\nq:  %s\nq': %s\n" (show q) (show q')) $
   let n = length q in
@@ -244,9 +255,9 @@ split d q q' = -- q <= q'
   -- trace (printf "\nQcurly: %s" (show qCurly)) $
   let (bestMC, delta) = bmc d q qCurly in
   -- trace (printf "\nBMC: %s" $ show bestMC ) $
-  let b = minimallyGeneral bestMC in
+  let (b, gen) = minimallyGeneral bestMC in
   -- trace (printf "\nQcurly: %s\nBestMC: %s\nB:  %s\nQ': %s\nQ:  %s\n" (show qCurly) (show bestMC) (show b) (show q') (show q)) $
-  ((b, if length q' > n then complementSubconjs b q' else []), delta)
+  ((b, if length q' > n then complementSubconjs b q' else []), gen, delta)
 
 class AlwaysEmbeddable a => Homeo a where
   couple :: a -> a -> Bool
