@@ -171,6 +171,14 @@ doOcanrenize = do
         let pur = purification (f, vident <$> reverse names)
         OC.topLevel (printf "%s.ml" filename) "topLevel" env pur
 
+ocanren filename goal = do
+    let (tree, logicGoal, names) = GC.topLevel goal
+    -- let f = residualizeGlobalTree tree
+    -- let pur = purification (f $ vident <$> logicGoal, vident <$> reverse names)
+    let f = residualizationTopLevel tree
+    let pur = purification (f, vident <$> reverse names)
+    OC.topLevel (printf "%s.ml" filename) "topLevel" Nothing pur
+
 doResidualization = do
   purify "membero" $ membero $ fresh ["a"] (call "membero" [V "a", V "a" % nil])
   -- purify "bottles.mk"         Bottles.query
@@ -669,6 +677,20 @@ testLocalControl = do
     z = V 3
     r = V 4
     u = V 5
+
+
+test' = let
+    t1 = [ maxo1 x zero z, lengtho x y ]
+    t2 = [ gto r zero zero , maxo1 x r  z, lengtho x y ]
+  in [embed t1 t2, homeo t1 t2, isInst t1 t2]
+  where
+      maxo1 x y z = Invoke "maxo1" [x, y, z]
+      lengtho x y = Invoke "lengtho" [x, y]
+      gto x y z = Invoke "gto" [x, y, z]
+      x = V 0
+      y = V 1
+      z = V 3
+      r = V 4
 
 testMCS = do
   assert "mcs 0" [[p x y, q x], [p t u], [q v]] (mcs [p x y, p t u, q x, q v])
