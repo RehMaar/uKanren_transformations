@@ -235,7 +235,7 @@ revAcco g =
     (def "revacco" ["xs", "acc", "sx"]
        (
          (xs === nil &&& sx === acc) |||
-         (fresh ["h", "t"]
+         (fresh ["h", "t"] $
            (xs === h % t) &&&
            call "revacco" [t, h % acc, sx]
          )

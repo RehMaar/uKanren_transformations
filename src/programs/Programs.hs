@@ -2,6 +2,7 @@ module Programs where
 
 import List
 import Num
+import Bool
 import Syntax
 import Prelude hiding (succ)
 

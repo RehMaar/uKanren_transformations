@@ -101,3 +101,6 @@ num (C "O" []) = "O"
 num (C "S" [x]) = printf "S(%s)" (num x)
 num _ = "??"
 
+
+sqro :: G a -> G a
+sqro = Let (def "sqro" ["x", "r"] $ call "mulo" [V "x", V "x", V "r"]) . mulo
