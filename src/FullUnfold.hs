@@ -54,6 +54,7 @@ derivationStep d@(CPD.Descend goal ancs) env subst seen depth
  -- | depth >= 4
  -- = (Prune d, seen)
   | CPD.variantCheck goal seen
+  -- =  trace ("Is variant: " ++ show goal ++ " " ++ (show $ getVariant goal seen)) (Leaf d subst env, seen) -- We didn't add `Leaf' to the `seen' set.
   = (Leaf d subst env, seen) -- We didn't add `Leaf' to the `seen' set.
   | otherwise
   = let
@@ -62,8 +63,8 @@ derivationStep d@(CPD.Descend goal ancs) env subst seen depth
   in case fullUnfoldStep goal env subst of
      ([], _)          -> (Fail, newSeen)
      (uGoals, newEnv) -> let
-         (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
-       in (Or ts subst d, seen')
+         (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
+       in (Or (reverse ts) subst d, seen')
 
 fullUnfoldStep :: DGoal -> E.Gamma -> E.Sigma -> ([(E.Sigma, DGoal)], E.Gamma)
 fullUnfoldStep goal env subst = let
@@ -83,8 +84,8 @@ evalSubTree depth env ancs seen (subst, goal)
       descend  = CPD.Descend goal ancs
       newAncs  = Set.insert goal ancs
       absGoals = GC.abstractChild ancs (subst, goal, Just env)
-      (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalGenSubTree depth newAncs seen g) (seen, []) absGoals
-    in (seen', And ts subst descend)
+      (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalGenSubTree depth newAncs seen g) (seen, []) absGoals
+    in (seen', And (reverse ts) subst descend)
   | otherwise
   = let
       descend = CPD.Descend goal ancs
@@ -117,6 +118,7 @@ derivationStep' d@(CPD.Descend goal ancs) env subst seen depth
   -- | depth >= totalDepth
   -- = Prune d
   | CPD.variantCheck goal seen
+  -- = trace ("Is variant: " ++ show goal ++ " " ++ (show $ getVariant goal seen)) $ Leaf d subst env
   = Leaf d subst env
   -- Unfold all.
   | otherwise
@@ -173,3 +175,5 @@ unfoldAll gamma = foldl unfold' (gamma, [])
 
 showUnified :: Disj (E.Sigma, Conj (G S)) -> String
 showUnified = concatMap (\(subst, conj) -> "(" ++ show (null subst) ++ ", " ++ show conj ++ ")")
+
+getVariant goal = Set.elemAt 0 . Set.filter (CPD.isVariant goal)
