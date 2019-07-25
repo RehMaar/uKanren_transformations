@@ -39,7 +39,7 @@ data DTree = Fail -- Failed derivation.
   | Or [DTree] E.Sigma DDescendGoal -- Node for a disjunction.
   | And [DTree] E.Sigma DDescendGoal -- Node for a conjunction.
   | Node DTree DDescendGoal E.Sigma -- Auxiliary node.
-  | Leaf DDescendGoal E.Sigma E.Gamma -- Variant leaf
+  | Leaf DDescendGoal E.Sigma E.Gamma -- DTree -- Variant leaf
   | Gen DTree E.Sigma -- Generalizer
   | Prune DDescendGoal -- Debug node
 
@@ -150,12 +150,12 @@ addConjToDNF ds c = (c ++) <$> ds
 -- DTree to a set of goals of its nodes
 --
 treeGoals :: DTree -> Set.Set DGoal
-treeGoals (Or ts _ goal) = Set.insert (CPD.getCurr goal) (Set.unions (treeGoals <$> ts))
+treeGoals (Or ts _ goal)  = Set.insert (CPD.getCurr goal) (Set.unions (treeGoals <$> ts))
 treeGoals (And ts _ goal) = Set.insert (CPD.getCurr goal) (Set.unions (treeGoals <$> ts))
-treeGoals (Node t goal _) = Set.insert (CPD.getCurr goal) (treeGoals t)
-treeGoals (Leaf goal _ _) = Set.singleton (CPD.getCurr goal)
+-- treeGoals (Node t goal _) = Set.insert (CPD.getCurr goal) (treeGoals t)
+-- treeGoals (Leaf goal _ _) = Set.singleton (CPD.getCurr goal)
 treeGoals (Gen t _) = treeGoals t
-treeGoals (Prune goal) = Set.singleton (CPD.getCurr goal)
+-- treeGoals (Prune goal) = Set.singleton (CPD.getCurr goal)
 treeGoals _ = Set.empty
 
 --
