@@ -1,30 +1,18 @@
-module Main (
-    main
-) where
+module Main where
 
-import qualified OCanrenizeTest as OC
-import qualified ResidualizeTest as R
-import qualified DrivingTest as D
-import qualified BridgeTest as BT
-import qualified PrintingTest as PT
-import qualified EmbedTest as ET
-import qualified SomeTest as ST
+import qualified SeqUnfold as SU
+import qualified Desert as ProgsD
+import qualified DTree as DT
 
-main :: IO ()
+fst3 (a, _, _) = a
+
+statTree :: DT.DTree -> IO ()
+statTree t = do
+  let d = DT.countDepth t
+  let (l, p) = DT.countLeafs t
+  let n = DT.countNodes t
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " (Pruned: " ++ show p ++ ")" ++ " Nodes: " ++ show n
+
 main = do
-  --PT.main
-  --OC.main
-
-  --print ET.test
-
-  --print ET.g1
-  --print ET.g2
-  --print ET.test'
-
-  --BT.test
-  --BT.testBig
-  --BT.testEq
-
-  OC.main
-  --ST.test
-  --ST.test'
+  let t = fst3 $ SU.topLevel ProgsD.query
+  statTree t
