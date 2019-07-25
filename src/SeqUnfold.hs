@@ -1,14 +1,14 @@
-{-
-Эксперементы
-* doubleAppendo -- depth: 7, leafs: 4
-* reverso -- depth: 5, leafs: 4
-* revacco -- depth: 3, leafs: 2
-* maxLenghto -- depth: 17, leafs 14
-* sorto -- depth: 9, leafs: 8
-* bottles (query) -- :(
-* desert (query) -- :(
--}
+{- Test results
 
+* doubleAppendo a b c d -- Depth: 7  Leafs: 5  Nodes: 14
+* reverso a b           -- Depth: 4  Leafs: 4  Nodes: 8
+* reverso [1, 2, 3] b   -- Depth: 16 Leafs: 7  Nodes: 32
+* revacco a acc b       -- Depth: 4  Leafs: 2  Nodes: 5
+* revacco a [] b        -- Depth: 7  Leafs: 3  Nodes: 9
+* sorto xs ys           -- Depth: 8  Leafs: 8  Nodes: 19
+* maxLengtho x m l      -- Depth: 17 Leafs: 14 Nodes: 42
+
+-}
 
 module SeqUnfold where
     
@@ -26,19 +26,56 @@ import qualified Data.Set as Set
 
 import Text.Printf
 import DotPrinter
+import Unfold
 
 import Debug.Trace
 
 trace' _ = id
 
+data SUGoal = SUGoal DGoal Int
+
 topLevel :: G X -> (DTree, G S, [S])
 topLevel g = let
   (lgoal, lgamma, lnames) = goalXtoGoalS g
-  descendGoal = CPD.Descend [lgoal] Set.empty
-  tree = derivationStep descendGoal 0 lgamma E.s0 Set.empty  0
+  igoal = SUGoal [lgoal] 0
+  tree = fst $ derivationStep igoal Set.empty lgamma E.s0 Set.empty 0
   in (tree, lgoal, lnames)
 
-derivationStep
+instance Unfold SUGoal where
+  getGoal (SUGoal dgoal _) = dgoal
+
+  initGoal goal = SUGoal goal 0
+
+  emptyGoal (SUGoal dgoal _) = null dgoal
+
+  unfoldStep = seqUnfoldStep
+
+seqUnfoldStep :: SUGoal -> E.Gamma -> E.Sigma -> ([(E.Sigma, SUGoal)], E.Gamma)
+seqUnfoldStep (SUGoal dgoal idx) env subst = let
+    (immut, conj, mut) = splitGoal idx dgoal
+
+    (newEnv, uConj) = unfold conj env
+
+    nConj = goalToDNF uConj
+    unConj = unifyAll subst nConj
+    us = (\(cs, subst) -> (subst, suGoal immut cs mut)) <$> unConj
+  in (us, newEnv)
+  where
+    suGoal immut cs mut = let
+        goal = immut ++ cs ++ mut
+        newIdx = let i = 1 + idx + length cs in if i >= length goal then 0 else i
+      in SUGoal goal newIdx
+
+
+{-
+topLevel' :: G X -> (DTree, G S, [S])
+topLevel' g = let
+  (lgoal, lgamma, lnames) = goalXtoGoalS g
+  descendGoal = CPD.Descend [lgoal] Set.empty
+  tree = derivationStep' descendGoal 0 lgamma E.s0 Set.empty  0
+  in (tree, lgoal, lnames)
+
+derivationStep'
   :: DDescendGoal    -- Conjunction of invokes and substs.
   -> Int             -- Index of the conj in the ^ we need to unfold
   -> E.Gamma         -- Context
@@ -46,7 +83,7 @@ derivationStep
   -> Set.Set DGoal   -- Already seen
   -> Int -- Debug, depth
   -> DTree
-derivationStep d@(CPD.Descend goal ancs) idx env subst seen depth
+derivationStep' d@(CPD.Descend goal ancs) idx env subst seen depth
   | depth >= 10
   = Prune d
   | CPD.variantCheck goal seen
@@ -115,12 +152,13 @@ derivationStep d@(CPD.Descend goal ancs) idx env subst seen depth
           else let
             -- TODO: выглядит не очень надёжно
             nextIdx = let i = length immut + length c in if i >= length goal then 0 else i
-            tree = derivationStep dgoal nextIdx env subst seen (succ depth)
+            tree = derivationStep' dgoal nextIdx env subst seen (succ depth)
           in Node tree dgoal subst
 
         stepGen ancs seen (subst, goal, gen, env) = let
-            tree = derivationStep (CPD.Descend goal ancs) 0 env subst seen (succ depth)
+            tree = derivationStep' (CPD.Descend goal ancs) 0 env subst seen (succ depth)
           in if null gen then tree else Gen tree gen
+-}
 
 showAbs = concatMap showAbs'
   where

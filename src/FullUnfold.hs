@@ -1,12 +1,12 @@
-{-# LANGUAGE TupleSections #-}
-
 {- Test results.
 
-* doubleAppendo -- depth: 7, leafs: 4
-* reverso -- depth: 6, leafs: 4
-* revAcco -- depth: 4, leafs, 2
-* maxLenghto -- depth: 18, leafs: 67
-* sorto -- depth: 11, leafs: 8
+* doubleAppendo a b c d -- Depth: 4  Leafs: 4  Nodes: 7
+* reverso a b           -- Depth: 4  Leafs: 4  Nodes: 8
+* reverso [1, 2, 3] b   -- Depth: 5  Leafs: 4  Nodes: 8
+* revacco a acc b       -- Depth: 4  Leafs: 2  Nodes: 5
+* revacco a [] b        -- Depth: 7  Leafs: 3  Nodes: 9
+* sorto xs ys           -- Depth: 7  Leafs: 8  Nodes: 17
+* maxLengtho x m l      -- Depth: 13 Leafs: 89 Nodes: 157
 
 Too long:
 * bottles (query)
@@ -30,16 +30,48 @@ import Data.Tuple (swap)
 
 import Text.Printf
 import DotPrinter
+import Unfold
 
 import Debug.Trace
 
+newtype FUGoal = FUGoal DGoal
 
+topLevel :: G X -> (DTree, G S, [S])
+topLevel g = let
+  (lgoal, lgamma, lnames) = goalXtoGoalS g
+  igoal = FUGoal [lgoal]
+  tree = fst $ derivationStep igoal Set.empty lgamma E.s0 Set.empty 0
+  in (tree, lgoal, lnames)
+
+instance Unfold FUGoal where
+  getGoal (FUGoal dgoal) = dgoal
+
+  initGoal = FUGoal
+
+  emptyGoal (FUGoal dgoal) = null dgoal
+
+  unfoldStep = fullUnfoldStep
+    where
+      fullUnfoldStep :: FUGoal  -> E.Gamma -> E.Sigma -> ([(E.Sigma, FUGoal)], E.Gamma)
+      fullUnfoldStep (FUGoal goal) env subst = let
+          (newEnv, unfoldedGoal) = unfoldAll env goal
+          n = (goalToDNF <$> unfoldedGoal)
+          -- Goal :: [DNF of each body] :: [Body DNF [[Conj]]]
+          normalizedGoal = conjOfDNFtoDNF n
+          -- Goal :: [Unified DNF] :: [Body DNF [[Conj] and Substs]]
+          unifiedGoal = (\(conj, subst) -> (subst, FUGoal $ E.substituteConjs subst conj)) <$> unifyAll subst normalizedGoal
+        in (unifiedGoal, newEnv)
+
+
+
+{-
 topLevel :: G X -> (DTree, G S, [S])
 topLevel g = let
   (lgoal, lgamma, lnames) = goalXtoGoalS g
   descendGoal     = dGoal lgoal Set.empty
   tree = fst $ derivationStep descendGoal lgamma E.s0 Set.empty 0
   in (tree, lgoal, lnames)
+
 
 totalDepth = 6
 
@@ -66,16 +98,6 @@ derivationStep d@(CPD.Descend goal ancs) env subst seen depth
          (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
        in (Or (reverse ts) subst d, seen')
 
-fullUnfoldStep :: DGoal -> E.Gamma -> E.Sigma -> ([(E.Sigma, DGoal)], E.Gamma)
-fullUnfoldStep goal env subst = let
-    (newEnv, unfoldedGoal) = unfoldAll env goal
-    n = (goalToDNF <$> unfoldedGoal)
-    -- Goal :: [DNF of each body] :: [Body DNF [[Conj]]]
-    normalizedGoal = conjOfDNFtoDNF n
-    -- Goal :: [Unified DNF] :: [Body DNF [[Conj] and Substs]]
-    unifiedGoal = (\(conj, subst) -> (subst, E.substituteConjs subst conj)) <$> unifyAll subst normalizedGoal
-  in (unifiedGoal, newEnv)
-
 evalSubTree depth _ _ seen (subst, []) = (seen, Success subst)
 evalSubTree depth env ancs seen (subst, goal)
   | not (CPD.variantCheck goal seen)
@@ -90,7 +112,7 @@ evalSubTree depth env ancs seen (subst, goal)
   = let
       descend = CPD.Descend goal ancs
       (tree, seen') = derivationStep descend env subst seen (1 + depth)
-    in (seen', Node tree descend subst)
+    in (seen', tree) -- Node tree descend subst)
 
 evalGenSubTree depth ancs seen (subst, goal, gen, env) = let
     descend = CPD.Descend goal ancs
@@ -98,7 +120,8 @@ evalGenSubTree depth ancs seen (subst, goal, gen, env) = let
     (tree, seen') = derivationStep descend env subst seen newDepth
     -- subtree = if null gen then tree else Gen tree gen
   in (seen', subtree)
-
+-}
+{-
 
 topLevel' :: G X -> (DTree, G S, [S])
 topLevel' g = let
@@ -153,7 +176,7 @@ derivationStep' d@(CPD.Descend goal ancs) env subst seen depth
         = let
             descend = CPD.Descend cs ancs'
             tree = derivationStep' descend env' subst' seen' (2 + depth)
-          in Node tree descend subst'
+          in tree -- Node tree descend subst'
 
       stepGen ancs' seen' (subst'', goal'', [], env'')
         = tree 
@@ -165,6 +188,8 @@ derivationStep' d@(CPD.Descend goal ancs) env subst seen depth
         where
           tree = derivationStep' descend env'' subst'' seen' (2 + depth)
           descend = CPD.Descend goal'' ancs'
+
+-}
 
 
 -- Return value is Conj (G S), but now (G S) is a body of corresponding Invoke.
