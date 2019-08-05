@@ -4,12 +4,13 @@ import Syntax
 
 import qualified CPD
 import qualified Eval as E
-import qualified Purification as P
 import qualified GlobalControl as GC
 
 import qualified Data.Set as Set
+import Data.Monoid
 
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust, fromJust)
+import Control.Arrow (second)
 import Text.Printf
 import DotPrinter
 
@@ -34,14 +35,16 @@ goalToDNF = CPD.normalize
 
 
 -- Derivation Tree
-data DTree = Fail -- Failed derivation.
+data DTree = Fail   -- Failed derivation.
   | Success E.Sigma -- Success derivation.
   | Or [DTree] E.Sigma DDescendGoal -- Node for a disjunction.
   | And [DTree] E.Sigma DDescendGoal -- Node for a conjunction.
-  | Node DTree DDescendGoal E.Sigma -- Auxiliary node.
-  | Leaf DDescendGoal E.Sigma E.Gamma -- DTree -- Variant leaf
+  | Leaf DDescendGoal E.Sigma E.Gamma -- Variant leaf
   | Gen DTree E.Sigma -- Generalizer
+  -- Not in use now
+  | Node DTree DDescendGoal E.Sigma -- Auxiliary node.
   | Prune DDescendGoal -- Debug node
+
 
 --
 
@@ -59,7 +62,7 @@ instance Dot DTree where
   dot (Node _ d s) = printf "Node <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr d)  (E.dotSigma s)
   dot (Gen _ s) = printf "Gen <BR/> Generalizer: %s" (E.dotSigma s)
   dot (And _ s d) = printf "And <BR/> Subst: %s <BR/> Goal: %s" (E.dotSigma s) (dot $ CPD.getCurr d)
-  dot (Or ts s d) = printf "Or %d <BR/> Subst: %s <BR/> Goal: %s" (length ts) (E.dotSigma s) (dot $ CPD.getCurr d)
+  dot (Or ts s d) = printf "Or <BR/> Subst: %s <BR/> Goal: %s" (E.dotSigma s) (dot $ CPD.getCurr d)
   dot (Leaf goal s _) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr goal)  (E.dotSigma s)
   dot (Prune d) = printf "Prune <BR/> Goal: %s" (dot $ CPD.getCurr d) 
 
@@ -77,8 +80,42 @@ instance Show DTree where
 
 --
 
+leaves :: DTree -> [DGoal]
+leaves (Or ts _ _) = concatMap leaves ts
+leaves (And ts _ _) = concatMap leaves ts
+leaves (Leaf g _ _) = [CPD.getCurr g]
+leaves (Gen t _) = leaves t
+leaves _ = []
+
+---
+
+findVariantNode :: DGoal ->  DTree -> Maybe DTree
+findVariantNode dg n@(Or ts _ g)
+  | CPD.isVariant (CPD.getCurr g) dg
+  = Just n
+  | otherwise
+  = findFirst (findVariantNode dg) ts
+findVariantNode dg n@(And ts _ g)
+  | CPD.isVariant (CPD.getCurr g) dg
+  = Just n
+  | otherwise
+  = findFirst (findVariantNode dg) ts
+findVariantNode dg (Gen t _) = findVariantNode dg t
+findVariantNode _ _ = Nothing
+
+--
+-- Match leaves' goals and nodes
+--
+matchVariants :: DTree -> [(DGoal, DTree)]
+matchVariants t = second fromJust <$>
+                  filter (isJust . snd)
+                  ((,) <*> flip findVariantNode t <$> leaves t)
+
+
+
 -- TODO: useless?
 
+{-
 data Resultant = Resultant {
     resSubst :: E.Sigma
   , resGoal  :: DGoal
@@ -97,54 +134,9 @@ resultants (And ts _ _) = concat (resultants <$> ts)
 resultants (Or ts _ _) = concat (resultants <$> ts)
 resultants (Gen t _) = resultants t
 resultants _ = error "The tree has bad leafs (Prune...)"
+-}
 
 --
-
-goalXtoGoalS :: G X -> (G S, E.Gamma, [S])
-goalXtoGoalS g = let
-  (goal, _, defs)    = P.justTakeOutLets (g, [])
-  gamma              = E.updateDefsInGamma E.env0 defs
-  in E.preEval' gamma goal
-
---
-
-isGen goal ancs = any (`CPD.embed` goal) ancs && not (Set.null ancs)
-
---
-
-unfold :: G S -> E.Gamma -> (E.Gamma, G S)
-unfold g@(Invoke f as) env@(p, i, d)
-  | (n, fs, body) <- p f
-  , length fs == length as
-  = let i'            = foldl extend i (zip fs as)
-        (g', env', _) = E.preEval' (p, i', d) body
-    in (env', g')
-  | otherwise = error "Unfolding error: different number of factual and actual arguments"
-unfold g env = (env, g)
-
-extend :: E.Iota -> (X, Ts) -> E.Iota
-extend = uncurry . E.extend
-
---
-
-unifyAll :: E.Sigma -> Disj (Conj (G S)) -> Disj (Conj (G S), E.Sigma)
-unifyAll = mapMaybe . CPD.unifyStuff
-
---
--- Conjunction of DNF to DNF
---
-
-conjOfDNFtoDNF :: Ord a => Conj (Disj (Conj a)) -> Disj (Conj a)
-conjOfDNFtoDNF = {- unique . -} conjOfDNFtoDNF'
-
-
-conjOfDNFtoDNF' :: Ord a => Conj (Disj (Conj a)) -> Disj (Conj a)
-conjOfDNFtoDNF' [] = []
-conjOfDNFtoDNF' (x:[]) = x
-conjOfDNFtoDNF' (x {- Disj (Conj a) -} :xs) = concat $ addConjToDNF x <$> conjOfDNFtoDNF xs {- Disj (Conj a) -}
-
-addConjToDNF :: Disj (Conj a) -> Conj a -> Disj (Conj a)
-addConjToDNF ds c = (c ++) <$> ds
 
 --
 -- DTree to a set of goals of its nodes
@@ -184,3 +176,7 @@ countNodes (And ts _ _) = 1 + sum (countNodes <$> ts)
 countNodes (Node t _ _) = 1 + countNodes t
 countNodes (Gen t _) = 1 + countNodes t
 countNodes _ = 1
+
+-- Utils
+
+findFirst f = getFirst . foldMap (First . f)

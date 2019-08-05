@@ -50,6 +50,8 @@ instance Unfold FUGoal where
 
   emptyGoal (FUGoal dgoal) = null dgoal
 
+  mapGoal (FUGoal dgoal) f = FUGoal (f dgoal)
+
   unfoldStep = fullUnfoldStep
     where
       fullUnfoldStep :: FUGoal  -> E.Gamma -> E.Sigma -> ([(E.Sigma, FUGoal)], E.Gamma)
@@ -200,5 +202,3 @@ unfoldAll gamma = foldl unfold' (gamma, [])
 
 showUnified :: Disj (E.Sigma, Conj (G S)) -> String
 showUnified = concatMap (\(subst, conj) -> "(" ++ show (null subst) ++ ", " ++ show conj ++ ")")
-
-getVariant goal = Set.elemAt 0 . Set.filter (CPD.isVariant goal)

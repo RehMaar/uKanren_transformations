@@ -1,12 +1,12 @@
 {- Test results
 
-* doubleAppendo a b c d -- Depth: 7  Leafs: 5  Nodes: 14
+* doubleAppendo a b c d -- Depth: 5  Leafs: 4  Nodes: 10
 * reverso a b           -- Depth: 4  Leafs: 4  Nodes: 8
-* reverso [1, 2, 3] b   -- Depth: 16 Leafs: 7  Nodes: 32
+* reverso [1, 2, 3] b   -- Depth: 12 Leafs: 7  Nodes: 24
 * revacco a acc b       -- Depth: 4  Leafs: 2  Nodes: 5
 * revacco a [] b        -- Depth: 7  Leafs: 3  Nodes: 9
-* sorto xs ys           -- Depth: 8  Leafs: 8  Nodes: 19
-* maxLengtho x m l      -- Depth: 17 Leafs: 14 Nodes: 42
+* sorto xs ys           -- Depth: 7  Leafs: 8  Nodes: 17
+* maxLengtho x m l      -- Depth: 12 Leafs: 14 Nodes: 35
 
 -}
 
@@ -41,6 +41,7 @@ topLevel g = let
   tree = fst $ derivationStep igoal Set.empty lgamma E.s0 Set.empty 0
   in (tree, lgoal, lnames)
 
+
 instance Unfold SUGoal where
   getGoal (SUGoal dgoal _) = dgoal
 
@@ -48,24 +49,26 @@ instance Unfold SUGoal where
 
   emptyGoal (SUGoal dgoal _) = null dgoal
 
+  mapGoal (SUGoal dgoal idx) f = SUGoal (f dgoal) idx
+
   unfoldStep = seqUnfoldStep
+
 
 seqUnfoldStep :: SUGoal -> E.Gamma -> E.Sigma -> ([(E.Sigma, SUGoal)], E.Gamma)
 seqUnfoldStep (SUGoal dgoal idx) env subst = let
     (immut, conj, mut) = splitGoal idx dgoal
-
+  -- in trace ("Goal: " ++ show dgoal ++ "\n Unfold: " ++ show conj) $ let
     (newEnv, uConj) = unfold conj env
 
     nConj = goalToDNF uConj
     unConj = unifyAll subst nConj
-    us = (\(cs, subst) -> (subst, suGoal immut cs mut)) <$> unConj
+    us = (\(cs, subst) -> (subst, suGoal subst immut cs mut)) <$> unConj
   in (us, newEnv)
   where
-    suGoal immut cs mut = let
-        goal = immut ++ cs ++ mut
-        newIdx = let i = 1 + idx + length cs in if i >= length goal then 0 else i
+    suGoal subst immut cs mut = let
+        goal = E.substituteConjs subst $ immut ++ cs ++ mut
+        newIdx = let i = idx + length cs in if i >= length goal then 0 else i
       in SUGoal goal newIdx
-
 
 {-
 topLevel' :: G X -> (DTree, G S, [S])
@@ -153,16 +156,18 @@ derivationStep' d@(CPD.Descend goal ancs) idx env subst seen depth
             -- TODO: выглядит не очень надёжно
             nextIdx = let i = length immut + length c in if i >= length goal then 0 else i
             tree = derivationStep' dgoal nextIdx env subst seen (succ depth)
-          in Node tree dgoal subst
+          -- in Node tree dgoal subst
+          in tree
 
         stepGen ancs seen (subst, goal, gen, env) = let
             tree = derivationStep' (CPD.Descend goal ancs) 0 env subst seen (succ depth)
           in if null gen then tree else Gen tree gen
--}
+
 
 showAbs = concatMap showAbs'
   where
     showAbs' (subst, goal, gen, _) = "(" ++ show subst ++ ", " ++ show goal ++ ", " ++ show gen ++ ")"
+-}
 
 -- TODO: it's not very smart splitting, but do I have to do it better?
 splitGoal _ [] = error "wtf?"
