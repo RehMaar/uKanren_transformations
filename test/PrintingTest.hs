@@ -18,6 +18,9 @@ import           Stlc
 import           Programs
 import           Text.Printf
 import           ConjRetriever
+import           DotPrinter
+
+snd' (_, a, _) = a
 
 upTo d x =
   trace (printf "\nDepth: %s" $ show d) $
