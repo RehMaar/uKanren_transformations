@@ -43,7 +43,7 @@ data DTree = Fail   -- Failed derivation.
   | Gen DTree E.Sigma -- Generalizer
   -- Not in use now
   | Node DTree DDescendGoal E.Sigma -- Auxiliary node.
-  | Prune DDescendGoal -- Debug node
+  | Prune DGoal -- Debug node
 
 
 --
@@ -55,16 +55,18 @@ instance DotPrinter DTree where
   labelNode t@(Gen ch _) = addChild t ch
   labelNode t = addLeaf t
 
+dotSigma _ = ""
+-- dotSigma = E.dotSigma
 
 instance Dot DTree where
   dot Fail = "Fail"
-  dot (Success s) = "Success <BR/> " ++ (E.dotSigma s)
-  dot (Node _ d s) = printf "Node <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr d)  (E.dotSigma s)
-  dot (Gen _ s) = printf "Gen <BR/> Generalizer: %s" (E.dotSigma s)
-  dot (And _ s d) = printf "And <BR/> Subst: %s <BR/> Goal: %s" (E.dotSigma s) (dot $ CPD.getCurr d)
-  dot (Or ts s d) = printf "Or <BR/> Subst: %s <BR/> Goal: %s" (E.dotSigma s) (dot $ CPD.getCurr d)
-  dot (Leaf goal s _) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr goal)  (E.dotSigma s)
-  dot (Prune d) = printf "Prune <BR/> Goal: %s" (dot $ CPD.getCurr d) 
+  dot (Success s)     = "Success <BR/> " ++ (dotSigma s)
+  dot (Node _ d s)    = printf "Node <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr d)  (dotSigma s)
+  dot (Gen _ s)       = printf "Gen <BR/> Generalizer: %s" (dotSigma s)
+  dot (And _ s d)     = printf "And <BR/> Subst: %s <BR/> Goal: %s" (dotSigma s) (dot $ CPD.getCurr d)
+  dot (Or ts s d)     = printf "Or <BR/> Subst: %s <BR/> Goal: %s" (dotSigma s) (dot $ CPD.getCurr d)
+  dot (Leaf goal s _) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot $ CPD.getCurr goal)  (dotSigma s)
+  dot (Prune g)       = printf "Prune <BR/> Goal: %s" (dot g)
 
 --
 
@@ -79,7 +81,8 @@ instance Show DTree where
   show (Prune d) = "{Prune " ++ show d ++ "}"
 
 --
-
+-- Return list of goals of tree's leaves (`Leaf` nodes)
+--
 leaves :: DTree -> [DGoal]
 leaves (Or ts _ _) = concatMap leaves ts
 leaves (And ts _ _) = concatMap leaves ts
@@ -111,32 +114,6 @@ matchVariants t = second fromJust <$>
                   filter (isJust . snd)
                   ((,) <*> flip findVariantNode t <$> leaves t)
 
-
-
--- TODO: useless?
-
-{-
-data Resultant = Resultant {
-    resSubst :: E.Sigma
-  , resGoal  :: DGoal
-  , resGamma :: E.Gamma
-  }
-
-instance Show Resultant where
-  show (Resultant subst goal _) = "Resulant { subst: <" ++ show subst ++ ">, goal: <" ++ show goal ++ ">}"
-
-resultants :: DTree -> [Resultant]
-resultants Fail = []
-resultants (Success s) = [Resultant s [] E.env0]
-resultants (Leaf goal subst gamma) = [Resultant subst (CPD.getCurr goal) gamma]
-resultants (Node t _ _) = resultants t
-resultants (And ts _ _) = concat (resultants <$> ts)
-resultants (Or ts _ _) = concat (resultants <$> ts)
-resultants (Gen t _) = resultants t
-resultants _ = error "The tree has bad leafs (Prune...)"
--}
-
---
 
 --
 -- DTree to a set of goals of its nodes
