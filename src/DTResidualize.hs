@@ -1,6 +1,7 @@
 module DTResidualize where
 
 import Syntax
+import DotPrinter
 
 import qualified DTree as DT
 import qualified Eval as E
@@ -16,21 +17,31 @@ import Control.Arrow (second)
 
 import qualified Data.Set as Set
 
+import Debug.Trace
+import Text.Printf
+
 
 -- residualize :: DTree -> G X -> [S] -> (G X, [X])
 residualize tree goal names = let
     xs = R.vident <$> names
   in undefined --(E.postEval' xs <$> resM tree, xs)
 
--- Derivation Tree
+--
+-- Marked Derivation Tree
+--
+-- `Bool` flag for `And` and `Or` constructors set to True
+-- if some `Leaf` is a variant of one of these nodes.
+--
 data MarkedTree = Fail
   | Success E.Sigma
-  | Or [MarkedTree] E.Sigma  DT.DDescendGoal Bool
-  | And [MarkedTree] E.Sigma DT.DDescendGoal Bool
-  | Leaf DT.DDescendGoal E.Sigma E.Gamma
+  | Or  [MarkedTree] E.Sigma DT.DGoal Bool
+  | And [MarkedTree] E.Sigma DT.DGoal Bool
+  | Leaf DT.DGoal E.Sigma E.Gamma
   | Gen MarkedTree E.Sigma
 
-
+--
+-- Debug output.
+--
 instance Show MarkedTree where
   show Fail                  = "Fail"
   show (Success s)           = "{Success}"
@@ -40,63 +51,61 @@ instance Show MarkedTree where
   show (Leaf g _ _)          = "{Leaf " ++ show g ++ "}"
 
 
-data Call = Call { callName :: Name, callArgs :: [S] }
+--
+--
+--
+instance DotPrinter MarkedTree where
+  labelNode t@(Or ch _ _ _) = addChildren t ch
+  labelNode t@(And ch _ _ _) = addChildren t ch
+  labelNode t@(Gen ch _) = addChild t ch
+  labelNode t = addLeaf t
+
+--
+-- Change to downscale the tree.
+--
+-- dotSigma _ = ""
+dotSigma = E.dotSigma
+
+instance Dot MarkedTree where
+  dot Fail = "Fail"
+  dot (Success s)     = "Success <BR/> " ++ (dotSigma s)
+  dot (Gen _ s)       = "Gen <BR/> Generalizer: " ++ dotSigma s
+  dot (And _ s d f)   = printf "And %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
+  dot (Or ts s d f)   = printf "Or %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
+  dot (Leaf goal s _) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot goal)  (dotSigma s)
+
+showF True = "T"
+showF _ = ""
+
+--
+--
+--
+data Call = Call { callName :: Name, callArgs :: [S], callOrigArgs :: [S] }
   deriving Show
 
 
-makeMarkedTree :: DT.DTree -> MarkedTree
+makeMarkedTree :: DT.DTree
+               -> MarkedTree
 makeMarkedTree x = makeMarkedTree' x (DT.leaves x) x
 
+
+makeMarkedTree' :: DT.DTree      -- Root of the tree
+                -> [DT.DGoal]    -- Leaves of the tree (Only `Leaf` nodes)
+                -> DT.DTree      -- Currently traversed tree.
+                -> MarkedTree
 makeMarkedTree' _ _ DT.Fail                  = Fail
 makeMarkedTree' _ _ (DT.Success s)           = Success s
 makeMarkedTree' root leaves (DT.Gen t s)     = Gen (makeMarkedTree' root leaves t) s
-makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf df s g
+makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s g
 makeMarkedTree' root leaves (DT.Or ts s dg@(CPD.Descend g _))  = let
     isVar = any (CPD.isVariant g) leaves
     ts'   = makeMarkedTree' root leaves <$> ts
-  in Or ts' s dg isVar
+  in Or ts' s g isVar
 makeMarkedTree' root leaves (DT.And ts s dg@(CPD.Descend g _))  = let
     isVar = any (CPD.isVariant g) leaves
     ts'   = makeMarkedTree' root leaves <$> ts
-  in And ts' s dg isVar
+  in And ts' s g isVar
 makeMarkedTree' root leaves _ = undefined
-
---
--- Generate invocation by goal.
---
-genInvoke goal = Invoke name args
-  where name = genCallName goal
-        args = genArgs goal
-
---
--- Generate invocation by goal with given name.
---
-genNamedInvoke :: Name -> [G S] -> G X
-genNamedInvoke name = Invoke name . genArgs
-
-genLet goal body = Let def newGoal
-  where
-    (name, args) = genLetSig goal
-    argsX = R.toX <$> args
-    argsS = show <$> argsX
-    def = (name, argsS, body)
-    newGoal = Invoke name argsX
-
---
--- Generate call signature
---
-genLetSig :: Ord a => [G a] -> (Name, [Term a])
-genLetSig goal = (genCallName goal, genLetArgs goal)
-
---
--- Generate arguments for `Let`.
---
-genLetArgs :: Ord a => [G a] -> [Term a]
-genLetArgs goal = let
-    args = getArgs goal
-    terms = Set.toList $ Set.fromList $ concatMap getVarFromTerm args
-  in terms
-
 
 --
 -- Get all variables from the given term.
@@ -105,19 +114,12 @@ getVarFromTerm :: Term x -> [Term x]
 getVarFromTerm v@(V _) = [v]
 getVarFromTerm (C _ vs) = concatMap getVarFromTerm vs
 
---
---
-genArgs :: [G S] -> [Term X]
-genArgs = map R.toX . getArgs
+getSFromTerm :: Term S -> [S]
+getSFromTerm (V v)    = [v]
+getSFromTerm (C _ vs) = concatMap getSFromTerm vs
 
---
--- Collect arguments of all invocations of the goal.
---
-getArgs :: [G a] -> [Term a]
-getArgs = concat . map getInvokeArgs
-
-getInvokeArgs (Invoke _ ts) = ts
-getInvokeArgs _ = []
+argsToS :: [Term S] -> [S]
+argsToS = concatMap getSFromTerm
 
 --
 -- Generate name for an invocation.
@@ -126,13 +128,54 @@ genCallName :: [G a] -> String
 genCallName = concat . toUpperTail . fmap toName . filter isInvoke
   where toName (Invoke g _) = g
 
-genCall :: [G S] -> Call
-genCall goal = let
-    name = genCallName goal
-    args = getArgsForCall goal
-  in Call name args
+--
+-- Return all arguments of the conj's invokes.
+--
+getArgs :: [G a] -> [Term a]
+getArgs = concatMap getInvokeArgs . filter isInvoke
 
-getArgsForCall goal = CR.uniqueArgs (getInvokeArgs <$> goal)
+
+genCall :: [G S] -> Call
+genCall = genCall' []
+
+genCall' cs goal = let
+    nameSet = Set.fromList ((\(_, Call name _ _) -> name) <$> cs)
+    name = CR.generateFreshName (genCallName goal) nameSet
+    args = argsToS $ genArgs goal
+    orig = argsToS $ getArgs goal
+  in Call name args orig
+
+genArgs :: Eq a => [G a] -> [Term a]
+genArgs = nub . genArgs'
+
+genArgs' = concatMap getVarFromTerm . getArgs
+
+
+-- genArgsByOrig :: [S] -> [S] -> [G S] -> [Term S]
+genArgsByOrig args orig goalArgs
+  | Just ms <- mapTwoLists orig goalArgs
+  = (\a -> fromMaybe (error $ "Couldn't find argument " ++ show a ++ " in original argument list") $ lookup a ms) <$> args
+  | otherwise
+  = error $ "\nUnable to match goal args and invoke args: Args = " ++ show args
+             ++ " Orig = " ++ show orig
+             ++ " GoalArgs = " ++ show goalArgs ++ "\n"
+
+genInvokeByCall (Call name args orig) goal = let
+     goalArgs = genArgs' goal
+     invArgs = map R.toX $ genArgsByOrig args orig goalArgs
+     in Invoke name invArgs
+
+--
+-- Generate call signature
+--
+genLetSig :: Ord a => [G a] -> (Name, [Term a])
+genLetSig goal = (genCallName goal, genArgs goal)
+
+--
+-- Get arguments from the given invoke.
+--
+getInvokeArgs (Invoke _ ts) = ts
+getInvokeArgs _ = []
 
 --
 -- Capitalize tail of the list of strings.
@@ -150,75 +193,140 @@ isInvoke _ = False
 --
 -- Collect all invocation from the derivation tree.
 --
-collectCallNames :: MarkedTree -> [(DT.DGoal, Call)]
-collectCallNames (Or ts _ (CPD.Descend goal _) True)  = (goal, genCall goal) : (concatMap collectCallNames ts)
-collectCallNames (And ts _ (CPD.Descend goal _) True) = (goal, genCall goal) : (concatMap collectCallNames ts)
-collectCallNames (Or ts _ _ _)  = concatMap collectCallNames ts
-collectCallNames (And ts _ _ _) = concatMap collectCallNames ts
-collectCallNames (Gen t _) = collectCallNames t
-collectCallNames _ = []
+collectCallNames cs (And ts _ goal True) = let c = (goal, genCall' cs goal) in foldl collectCallNames (c:cs) ts
+collectCallNames cs (Or  ts _ goal True) = let c = (goal, genCall' cs goal) in foldl collectCallNames (c:cs) ts
+collectCallNames cs (Or  ts _ _ _) = foldl collectCallNames cs ts
+collectCallNames cs (And ts _ _ _) = foldl collectCallNames cs ts
+collectCallNames cs (Gen t _) = collectCallNames cs t
+collectCallNames cs _ = cs
+
+topLevel t@(DT.Or ts _ (CPD.Descend goal _)) = let
+    -- Mark derivation tree.
+    -- Kludge: root Or node must be unmarked
+    mt = (\root -> case root of { (Or ts s goal f) -> Or ts s goal False; _ -> root}) $ makeMarkedTree t
+    -- Generate function signature for upper function.
+    c@(Call name args argsOrig) = genCall goal
+    -- Collect all signatures from the marked tree.
+    cs = collectCallNames [(goal, c)] mt
 
 
-topLevel t@(DT.Or ts _ dgoal) = let
-    goal = CPD.getCurr dgoal
-    mt = makeMarkedTree t
-    cs = collectCallNames mt
+    -- Residualizate the tree
+    -- defs -- collected function definitions
+    -- body -- Let (name, args, def) body
+    (defs, body) = res cs [] mt
 
-    -- defs :: (Call name args, body)
-    (defs, body) = f cs [] mt
-    args' = R.vident <$> getArgsForCall goal
+    args' = R.vident <$> args
+    args'' = map R.toX $ genArgsByOrig args argsOrig $ genArgs' goal
 
+    -- post-eval for freshes.
     body' = E.postEval' args' body
+    -- definition of the topLevel call.
+    def = (name, args', body')
 
-    def = (genCallName goal, args', body')
+    -- name = genCallName goal
+    goal' = Invoke name args''
 
-    name = genCallName goal
-    args = Set.toList $ Set.fromList $ genArgs goal
-
-    goal' = Invoke name args
   -- in genLet (CPD.getCurr dgoal) body
-  in Let def $ foldl1 (.) defs goal'
+  in -- trace ("\nInv: " ++ show goal' ++ " Args': " ++ show args' ++ " Call: " ++ show c ++ "\n") $
+    Let def $ foldDefs defs goal'
 topLevel DT.Fail = error "Unable to residualize failed derivation"
 topLevel _ = error "Who else could be root node?"
 
-helper cs s ts subst dg foldf =
-  let
-    (defs, goals) = unzip $ f cs (s `union` subst) <$> ts
-    goal = CPD.getCurr dg
 
-    Call name args = findCall cs goal
+foldDefs [] g = g
+foldDefs xs g = foldl1 (.) xs g
 
-    body = E.postEval' (R.vident <$> args) $ foldl1 foldf goals
+foldGoals _ [] = error "Empty goals!"
+foldGoals _ [g] = g
+foldGoals f gs  = foldl1 f gs
 
-    def = Let (name, R.vident <$> args, body)
+res = f
+  where
+    --
+    -- Common function to handle nodes that define a new subroutine.
+    --
+    helper cs s ts subst goal foldf = let
+        (defs, goals) = unzip $ f cs (s `union` subst) <$> ts
+        --
+        -- cs -- list of collected function names and args.
+        --
+        Call name args argsOrig = findCall cs goal
 
-    iname = genCallName goal
-    iargs = genArgs goal
+        argsS = R.vident <$> args
+        --
+        -- Fold all residualized subterms.
+        --
+        -- Call `postEval'` to add `fresh`.
+        body = E.postEval' argsS $ foldGoals foldf goals
 
-    goal' = CR.residualizeSubst (subst \\ s) :/\: Invoke iname iargs
-  in (def : concat defs, goal')
+        -- Create definition (without adding `goal` for later composition)
+        def = Let (name, argsS, body)
 
-f cs s (Or ts subst dg True) = helper cs s ts subst dg (:\/:)
-f cs s (Or ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldl1 (:\/:) goals)
+        -- Args for a call
+        goalArgs = genArgs' goal
 
-f cs s (And ts subst dg True) = helper cs s ts subst dg (:/\:)
-f cs s (And ts subst dg _)   = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldl1 (:/\:) goals)
+        iargs = map R.toX $ genArgsByOrig args argsOrig goalArgs
 
-f cs s (Gen t subst) = second (CR.residualizeSubst (subst \\ s) :/\:) (f cs s t)
+        diff  = subst \\ s
+        goal' = let g = Invoke name iargs in if null diff then g else CR.residualizeSubst diff :/\: g
+      in (def : concat defs, goal')
 
-f cs s (Leaf dg [] env)    = ([], findInvoke cs (CPD.getCurr dg))
-f cs s (Leaf dg subst env) = ([], CR.residualizeSubst (subst \\ s) :/\: findInvoke cs (CPD.getCurr dg))
+    --
+    -- The only nodes which can define new calls are `Or` and `And`.
+    --
+    -- If last field is True, the node defines a call.
+    f cs s (Or ts subst dg True) = helper cs s ts subst dg (:\/:)
+    -- Otherwise do a disjunction of residualized subtrees.
+    f cs s (Or ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldGoals (:\/:) goals)
+    -- For `And` do the same.
+    f cs s (And ts subst dg True) = helper cs s ts subst dg (:/\:)
+    f cs s (And ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldGoals (:/\:) goals)
 
-f _ s  (Success subst) = ([], CR.residualizeSubst (subst \\ s))
-f _ _ Fail = error "What to do with failed derivations?"
+    -- For `Gen` do conj of generalizer and the residualized goal.
+    f cs s (Gen t subst) = second (CR.residualizeSubst (subst \\ s) :/\:) (f cs s t)
+
+    --
+    -- For `Leaf` find function' call from the given list of calls.
+    f cs s (Leaf dg [] env)    = ([], findInvoke cs  dg)
+    -- And is subst isn't empty, return conjunction of gaol with it.
+    f cs s (Leaf dg subst env) = ([], CR.residualizeSubst (subst \\ s) :/\: findInvoke cs dg)
+
+    -- For `Success` just return substitution.
+    -- As no definitions possible, return [] as `defs`.
+    f _ s  (Success subst) = ([], CR.residualizeSubst (subst \\ s))
+
+    f _ _ Fail = error "What to do with failed derivations? Cut them off?"
 
 
-findCall :: [([G S], Call)] -> [G S] -> Call
+
 findCall cs goal = snd
-                   $ fromMaybe (error $ "No invocation for the leaf: " ++ show goal)
-                   $ find (CPD.isVariant goal . fst) cs
+  $ fromMaybe (error $ "No invocation for the leaf: " ++ show goal)
+  $ find (CPD.isVariant goal . fst) cs
 
+--
+-- Find a call and generate `Invoke`.
+--
 findInvoke :: [([G S], Call)] -> [G S] -> G X
-findInvoke cs goal = let
-     name = callName $ findCall cs goal
-  in genNamedInvoke name goal
+findInvoke cs goal = genInvokeByCall (findCall cs goal) goal
+
+--
+--
+-- Build a mapping from the first list to the second one and
+-- check its consistency.
+--
+mapTwoLists :: (Eq a, Eq b) => [a] -> [b] -> Maybe [(a, b)]
+mapTwoLists l1 l2
+  | length l1 == length l2
+  = checkMap $ zip l1 l2
+  | otherwise
+  = Nothing
+  where
+    checkMap [] = Just []
+    checkMap ms = foldr checkMap' (Just []) ms
+
+    checkMap' m@(m1, m2) (Just as)
+      | Just x <- lookup m1 as
+      , x /= m2
+      = Nothing
+      | otherwise = Just (m:as)
+    checkMap' _ _ = Nothing
