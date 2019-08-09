@@ -13,7 +13,7 @@ import qualified Eval as E
 import Text.Printf
 import Control.Monad
 import Data.Maybe
-import Data.List (find, nub, intersect, partition, subsequences)
+import Data.List (find, nub, intersect, partition, subsequences, tails)
 import Purification
 import qualified Data.Map.Strict as Map
 import Debug.Trace
@@ -205,7 +205,12 @@ msgExists _ _ = False
 
 -- ordered subconjunctions of the proper length
 subconjs :: [a] -> Int -> [[a]]
-subconjs gs n = filter (\x -> n == length x) $ subsequences gs
+subconjs gs n = combinations n gs -- filter (\x -> n == length x) $ subsequences gs
+  where
+    combinations :: Int -> [a] -> [[a]]
+    combinations 0 _ = [[]]
+    combinations _ [] = []
+    combinations n (x:xs) = (map (x:) (combinations (n-1) xs)) ++ (combinations n xs)
 
 -- works for ordered subconjunctions
 complementSubconjs :: (Instance a (Term a), Eq a, Ord a, Show a) => [G a] -> [G a] -> [G a]
