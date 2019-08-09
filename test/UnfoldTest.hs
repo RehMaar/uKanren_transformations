@@ -5,6 +5,7 @@ import DotPrinter
 import SldTreePrinter
 import GlobalTreePrinter
 
+import Control.Monad
 import System.Process (system)
 import System.Exit (ExitCode)
 import Data.List
@@ -29,6 +30,7 @@ import qualified Bool as Progs
 import qualified Bottles as ProgsB
 import qualified Desert as ProgsD
 import qualified Path as ProgsP
+import qualified Sudoku4x4 as ProgsS
 
 import qualified CpdResidualization as CR
 import qualified Purification as P
@@ -46,9 +48,14 @@ ocanren' filename goal = do
     -- let pur = purification (f $ vident <$> logicGoal, vident <$> reverse names)
     let f = CR.residualizationTopLevel tree
     let pur = P.purification (f, vident <$> reverse names)
-    OC.topLevel (printf "%s.ml" filename) "topLevel" Nothing pur
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevel" Nothing pur
+    system ("echo " ++ name)
+    system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
 
 open goal = openInPdf $ fst3 $ SU.topLevel goal
+
+openM goal = openInPdf $ DTR.makeMarkedTree $ fst3 $ SU.topLevel goal
 
 res goal = let
     (tree, logicGoal, names) = SU.topLevel goal
@@ -61,9 +68,39 @@ pur goal = let
     f = DTR.topLevel tree
   in P.purification (f, vident <$> reverse names)
 
+purId goal = let
+    (tree, logicGoal, names) = SU.topLevel goal
+    f = DTR.topLevel tree
+  in P.identity (f, vident <$> reverse names)
+
+ocanrenId filename goal = do
+    let p = purId goal
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevel" Nothing p
+
+ocanrenTest filename goal = do
+    let p = pur goal
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevel" Nothing p
+    system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
+
+ocanrenTestAll filename goal = do
+    let name = (printf "%s.ml" filename)
+    forM_ (zip [1..] goal) (\(n, g) ->
+      OC.topLevel (name ++ show n) ("topLevel" ++ show n) Nothing (pur g))
+    -- system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
+
 ocanren filename goal = do
     let p = pur goal
-    OC.topLevel (printf "%s.ml" filename) "topLevel" Nothing p
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevel" Nothing p
+
+
+collectOrNodes :: DT.DTree -> [DT.DGoal]
+collectOrNodes (DT.Or ts _ dg) = CPD.getCurr dg : concatMap collectOrNodes ts
+collectOrNodes (DT.And ts _ _) = concatMap collectOrNodes ts
+collectOrNodes (DT.Gen t _) = collectOrNodes t
+collectOrNodes _ = []
 
 {-
 toProgram :: (G X -> (DT.DTree, G S, [S])) ->  G X -> G S
@@ -159,11 +196,11 @@ testGetVarFromTerm = all id [test1, test2, test3, test4, test5]
     test4 = DTR.getVarFromTerm (C "S" [C "S" [V 0]]) == [V 0]
     test5 = DTR.getVarFromTerm (C "_" [V 0, V 1, C "_" [V 2, V 3]]) == [V 0, V 1, V 2, V 3]
 
-testGenLetArgs = all id [test1, test2, test3]
-  where
-    test1 = DTR.genLetArgs [Invoke "test" [V 0, V 1]] == [V 0, V 1]
-    test2 = null (DTR.genLetArgs [Invoke "test" [C "S" [C "O" []]]] :: [Term X])
-    test3 = DTR.genLetArgs [Invoke "test" [V 0, C "S" [C "O" []], V 2]] == [V 0, V 2]
+testGenLetArgs = True --all id [test1, test2, test3]
+--   where
+--     test1 = DTR.genLetArgs [Invoke "test" [V 0, V 1]] == [V 0, V 1]
+--     test2 = null (DTR.genLetArgs [Invoke "test" [C "S" [C "O" []]]] :: [Term X])
+--     test3 = DTR.genLetArgs [Invoke "test" [V 0, C "S" [C "O" []], V 2]] == [V 0, V 2]
 
 
 testGenLetSig = all id [test1, test2, test3]
@@ -171,6 +208,13 @@ testGenLetSig = all id [test1, test2, test3]
     test1 = DTR.genLetSig [Invoke "test" [V 0, V 1]] == ("test", [V 0, V 1])
     test2 = DTR.genLetSig [Invoke "test" [C "S" [C "O" []]]] == ("test", [] :: [Term X])
     test3 = DTR.genLetSig [Invoke "test" [V 0, C "S" [C "O" []], V 2]] == ("test", [V 0, V 2])
+
+testMWL = DTR.mapTwoLists [1, 2, 2] [1, 2, 3] == Nothing
+       && DTR.mapTwoLists [] [] == Just ([] :: [(S, S)])
+       && DTR.mapTwoLists [1] [1] == Just [(1, 1)]
+       && DTR.mapTwoLists [1] [2] == Just [(1, 2)]
+       && DTR.mapTwoLists [1, 2] [2, 5] == Just [(1, 2), (2, 5)]
+
 
 t1 = fst3 $ U.goalXtoGoalS $ Progs.sqro $ fresh ["r"] $ call "sqro" [Progs.peanify 2, V "r"]
 
@@ -197,6 +241,16 @@ tests = [
 statTestCallsSU = stats SU.topLevel tests
 statTestCallsFU = stats FU.topLevel tests
 
+tests' = [test1Call
+         , test1Call'
+         , test1Call''
+         , test1Call'''
+         , test2Call
+--         , test2Call'
+       , test3Call
+       , test4Call
+       , testH1
+         , testH2]
 
 --
 --
@@ -218,6 +272,10 @@ test1Call' = Progs.doubleAppendo $ fresh ["a", "b", "c", "d"]
 test1Call'' = Progs.doubleAppendo $ fresh ["a", "b", "c"]
               (call "doubleAppendo" [V "a", V "b", V "c", V "c"])
 
+
+test1Call''' = Progs.doubleAppendo $ fresh ["a", "b", "c", "d"]
+              (call "doubleAppendo" [V "d", V "b", V "d", V "c"])
+
 -- Test reverse without acc
 test2Call = Progs.reverso $ fresh ["a", "b"]
               (call "reverso" [V "a", V "b"])
@@ -236,6 +294,9 @@ test4Call = Progs.revAcco $ fresh ["a", "b"]
 
 testH1 = Progs.maxLengtho $ fresh ["x", "m", "l"]
            (call "maxLengtho" [V "x", V "m", V "l"])
+
+testH1' = Progs.maxo $ fresh ["a", "r"]
+           (call "maxo" [V "a", V "r"])
 
 testH2 = Progs.sorto $ fresh ["xs", "ys"]
            (call "sorto" [V "xs", V "ys"])
