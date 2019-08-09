@@ -249,6 +249,8 @@ removeRedundantArgs r e =
                hasVarInFunc v (applyErasureToFunc er hd)
             then True
             else isBadForFunc er p hd (f:pref) suff
+          -- x -> error $ "Purification: " ++ show x
+          _ -> True
 
     {-------------------------------------------}
     hasVarInFunc :: X -> Func -> Bool
