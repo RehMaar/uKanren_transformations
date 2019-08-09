@@ -32,7 +32,7 @@ import Debug.Trace
 
 trace' _ = id
 
-data SUGoal = SUGoal DGoal Int
+data SUGoal = SUGoal DGoal Int deriving Show
 
 topLevel :: G X -> (DTree, G S, [S])
 topLevel g = let

@@ -34,7 +34,7 @@ import Unfold
 
 import Debug.Trace
 
-newtype FUGoal = FUGoal DGoal
+newtype FUGoal = FUGoal DGoal deriving Show
 
 topLevel :: G X -> (DTree, G S, [S])
 topLevel g = let
