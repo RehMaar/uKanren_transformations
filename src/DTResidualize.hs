@@ -11,20 +11,15 @@ import qualified CPD
 
 import Data.List
 import Miscellaneous
-import Data.Maybe (isJust, fromMaybe)
+import Data.Maybe (isJust, fromMaybe, mapMaybe)
 import Data.Char (toUpper)
-import Control.Arrow (second)
+import Control.Arrow (first, second)
 
 import qualified Data.Set as Set
 
 import Debug.Trace
 import Text.Printf
 
-
--- residualize :: DTree -> G X -> [S] -> (G X, [X])
-residualize tree goal names = let
-    xs = R.vident <$> names
-  in undefined --(E.postEval' xs <$> resM tree, xs)
 
 --
 -- Marked Derivation Tree
@@ -36,7 +31,7 @@ data MarkedTree = Fail
   | Success E.Sigma
   | Or  [MarkedTree] E.Sigma DT.DGoal Bool
   | And [MarkedTree] E.Sigma DT.DGoal Bool
-  | Leaf DT.DGoal E.Sigma E.Gamma
+  | Leaf DT.DGoal E.Sigma
   | Gen MarkedTree E.Sigma
 
 --
@@ -48,7 +43,7 @@ instance Show MarkedTree where
   show (Or ts _ goal isVar)  = "{Or " ++ show isVar ++ "\n [" ++ concatMap show ts ++ "]\n}"
   show (And ts _ goal isVar) = "{And " ++ show isVar ++ "\n [" ++ concatMap show ts ++ "]\n}"
   show (Gen t s)             = "{Gen  " ++ show t ++ "\n}"
-  show (Leaf g _ _)          = "{Leaf " ++ show g ++ "}"
+  show (Leaf g _)          = "{Leaf " ++ show g ++ "}"
 
 
 --
@@ -68,11 +63,11 @@ dotSigma = E.dotSigma
 
 instance Dot MarkedTree where
   dot Fail = "Fail"
-  dot (Success s)     = "Success <BR/> " ++ (dotSigma s)
-  dot (Gen _ s)       = "Gen <BR/> Generalizer: " ++ dotSigma s
-  dot (And _ s d f)   = printf "And %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
-  dot (Or ts s d f)   = printf "Or %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
-  dot (Leaf goal s _) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot goal)  (dotSigma s)
+  dot (Success s)   = "Success <BR/> " ++ (dotSigma s)
+  dot (Gen _ s)     = "Gen <BR/> Generalizer: " ++ dotSigma s
+  dot (And _ s d f) = printf "And %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
+  dot (Or ts s d f) = printf "Or %s <BR/> Subst: %s <BR/> Goal: %s" (showF f) (dotSigma s) (dot d)
+  dot (Leaf goal s) = printf "Leaf <BR/> Goal: %s <BR/> Subst: %s" (dot goal)  (dotSigma s)
 
 showF True = "T"
 showF _ = ""
@@ -96,7 +91,7 @@ makeMarkedTree' :: DT.DTree      -- Root of the tree
 makeMarkedTree' _ _ DT.Fail                  = Fail
 makeMarkedTree' _ _ (DT.Success s)           = Success s
 makeMarkedTree' root leaves (DT.Gen t s)     = Gen (makeMarkedTree' root leaves t) s
-makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s g
+makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s
 makeMarkedTree' root leaves (DT.Or ts s dg@(CPD.Descend g _))  = let
     isVar = any (CPD.isVariant g) leaves
     ts'   = makeMarkedTree' root leaves <$> ts
@@ -200,7 +195,14 @@ collectCallNames cs (And ts _ _ _) = foldl collectCallNames cs ts
 collectCallNames cs (Gen t _) = collectCallNames cs t
 collectCallNames cs _ = cs
 
-topLevel t@(DT.Or ts _ (CPD.Descend goal _)) = let
+topLevel t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
+
+topLevel' Fail = error "How to residualize failed derivation?"
+topLevel' mt = let
+  cs = collectCallNames [] mt
+  (defs, body) = res cs [] mt
+  in foldDefs defs body
+{-
     -- Mark derivation tree.
     -- Kludge: root Or node must be unmarked
     mt = (\root -> case root of { (Or ts s goal f) -> Or ts s goal False; _ -> root}) $ makeMarkedTree t
@@ -229,9 +231,7 @@ topLevel t@(DT.Or ts _ (CPD.Descend goal _)) = let
   -- in genLet (CPD.getCurr dgoal) body
   in -- trace ("\nInv: " ++ show goal' ++ " Args': " ++ show args' ++ " Call: " ++ show c ++ "\n") $
     Let def $ foldDefs defs goal'
-topLevel DT.Fail = error "Unable to residualize failed derivation"
-topLevel _ = error "Who else could be root node?"
-
+-}
 
 foldDefs [] g = g
 foldDefs xs g = foldl1 (.) xs g
@@ -287,9 +287,9 @@ res = f
 
     --
     -- For `Leaf` find function' call from the given list of calls.
-    f cs s (Leaf dg [] env)    = ([], findInvoke cs  dg)
+    f cs s (Leaf dg [])    = ([], findInvoke cs  dg)
     -- And is subst isn't empty, return conjunction of gaol with it.
-    f cs s (Leaf dg subst env) = ([], CR.residualizeSubst (subst \\ s) :/\: findInvoke cs dg)
+    f cs s (Leaf dg subst) = ([], CR.residualizeSubst (subst \\ s) :/\: findInvoke cs dg)
 
     -- For `Success` just return substitution.
     -- As no definitions possible, return [] as `defs`.
@@ -330,3 +330,39 @@ mapTwoLists l1 l2
       = Nothing
       | otherwise = Just (m:as)
     checkMap' _ _ = Nothing
+
+--
+
+-- За один шаг. Предполагаем, что всё строилось слева направо. В процессе прохода собираем список плохих помеченных `Or`
+-- и каждый лист, который вариант плохого `Or`, обрабатывать как Fail.
+--
+cutFailedDerivations = fromMaybe Fail . fst . cfd Set.empty 
+  where
+    cfd :: Set.Set DT.DGoal    -- *Плохие* узлы, которые привели только к Fail узлам.
+        -> MarkedTree -- Текущий узел
+        -> (Maybe MarkedTree, Set.Set DT.DGoal) -- Новое поддерево и обновлённых список *плохих* узлов
+    cfd gs Fail = (Nothing, gs)
+    cfd gs t@(Success _) = (Just t, gs)
+    cfd gs t@(Leaf goal _)
+      | Just _ <- find (CPD.isVariant goal) gs
+      = (Nothing, gs)
+      | otherwise
+      = (Just t, gs)
+    cfd gs (Gen t s) = first (flip Gen s <$>) (cfd gs t)
+    cfd gs (Or  ts f1 g True) = cfdCommon1 Or gs ts f1 g
+    cfd gs (And ts f1 g True) = cfdCommon1 And gs ts f1 g
+    cfd gs (Or  ts f1 f2 f3) = cfdCommon2 Or  gs ts f1 f2 f3
+    cfd gs (And ts f1 f2 f3) = cfdCommon2 And gs ts f1 f2 f3
+
+    cfdCommon1 ctr gs ts f1 g = let
+        (mts, gs') = foldl foldCfd ([], gs) ts
+        ts' = mapMaybe id mts
+      in if null ts' then (Nothing, Set.insert g gs') else (Just $ ctr ts' f1 g True, gs')
+
+    cfdCommon2 ctr gs ts f1 f2 f3 = let
+        (mts, gs') = foldl foldCfd ([], gs) ts
+        ts' = mapMaybe id mts
+      in if null ts' then (Nothing, gs') else (Just $ ctr ts' f1 f2 f3, gs')
+
+
+    foldCfd (ts, gs) t = first (:ts) (cfd gs t)
