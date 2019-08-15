@@ -21,7 +21,7 @@ import qualified Purification as P
 import qualified GlobalControl as GC
 
 import Data.Maybe (mapMaybe)
-import Data.List (group, sort)
+import Data.List
 import qualified Data.Set as Set
 
 import Text.Printf
@@ -56,18 +56,17 @@ instance Unfold SUGoal where
 
 seqUnfoldStep :: SUGoal -> E.Gamma -> E.Sigma -> ([(E.Sigma, SUGoal)], E.Gamma)
 seqUnfoldStep (SUGoal dgoal idx) env subst = let
-    (immut, conj, mut) = splitGoal idx dgoal
+    (newIdx, (immut, conj, mut)) = splitGoal idx dgoal
   -- in trace ("Goal: " ++ show dgoal ++ "\n Unfold: " ++ show conj) $ let
     (newEnv, uConj) = unfold conj env
 
     nConj = goalToDNF uConj
     unConj = unifyAll subst nConj
-    us = (\(cs, subst) -> (subst, suGoal subst immut cs mut)) <$> unConj
+    us = (\(cs, subst) -> (subst, suGoal subst immut cs mut newIdx)) <$> unConj
   in (us, newEnv)
   where
-    suGoal subst immut cs mut = let
+    suGoal subst immut cs mut newIdx = let
         goal = E.substituteConjs subst $ immut ++ cs ++ mut
-        newIdx = let i = idx + length cs in if i >= length goal then 0 else i
       in SUGoal goal newIdx
 
 {-
@@ -170,11 +169,22 @@ showAbs = concatMap showAbs'
 -}
 
 -- TODO: it's not very smart splitting, but do I have to do it better?
-splitGoal _ [] = error "wtf?"
-splitGoal _ [g] = ([], g, [])
-splitGoal idx gs | idx >= length gs = splitGoal 0 gs
+-- splitGoal _ [] = error "wtf?"
+-- splitGoal _ [g] = (0, ([], g, []))
+-- splitGoal idx gs | idx >= length gs = splitGoal 0 gs
+-- splitGoal idx gs = let
+--     ls = take idx gs
+--     c  = gs !! idx
+--     rs = drop (succ idx) gs
+--     newIdx' = succ idx
+--     newIdx = if newIdx' >= length gs then 0 else newIdx'
+--   in (newIdx, (ls, c, rs))
+
+
+splitGoal _ [g] = (0, ([], g, []))
 splitGoal idx gs = let
-    ls = take idx gs
-    c  = gs !! idx
-    rs = drop (succ idx) gs
-  in (ls, c, rs)
+  (ls, rs) = splitAt idx gs
+  in case uncons rs of
+      Just (c, []) -> (length ls, (ls, c, []))
+      Just (c, rs) -> (succ idx, (ls, c, rs))
+      Nothing -> splitGoal 0 gs

@@ -27,66 +27,80 @@ trace' _ = id
 -- trace' = trace
 
 class Show a => Unfold a where
+
+  -- Что-то вроде интерфейса для `a'. Может, следует вынести в отдельный класс.
+  -- Получить цель из `a'.
   getGoal    :: a -> DGoal
+  -- Сконструировать `a'.
   initGoal   :: DGoal -> a
-  unfoldStep :: a -> E.Gamma -> E.Sigma -> ([(E.Sigma, a)], E.Gamma)
+  -- Проверить, пустая ли конъюнкция.
   emptyGoal  :: a -> Bool
+  -- Применить функцию к цели в `a'.
   mapGoal    :: a -> (DGoal -> DGoal) -> a
 
+  --
+  -- `unfold` цели в `a'.
+  --
+  unfoldStep :: a -> E.Gamma -> E.Sigma -> ([(E.Sigma, a)], E.Gamma)
+
   derivationStep
-    :: a -- Conjunction of invokes and substs.
-    -> Set.Set DGoal
-    -> E.Gamma           -- Context
-    -> E.Sigma           -- Substitution
-    -> Set.Set DGoal     -- Already seen
-    -> Int               -- Debug depth
+    :: a                 -- Conjunction of invokes and substs.
+    -> Set.Set DGoal     -- Ancsectors.
+    -> E.Gamma           -- Context.
+    -> E.Sigma           -- Substitution.
+    -> Set.Set DGoal     -- Already seen.
+    -> Int               -- Depth for debug.
     -> (DTree, Set.Set DGoal)
   derivationStep goal ancs env subst seen depth
-    -- | depth >= 20
-    -- = (Prune (getGoal goal), seen)
+    | depth >= 16
+    = (Prune (getGoal goal), seen)
     | CPD.variantCheck (getGoal goal) seen
     = (Leaf (CPD.Descend (getGoal goal) ancs) subst env, seen)
     | otherwise
     = let
-      descend = CPD.Descend (getGoal goal) ancs
-      newAncs = Set.insert (getGoal goal) ancs
-      newSeen = Set.insert (getGoal goal) seen
+      realGoal = getGoal goal
+      descend = CPD.Descend realGoal ancs
+      newAncs = Set.insert  realGoal ancs
+      newSeen = Set.insert  realGoal seen
     in case unfoldStep goal env subst of
        ([], _)          -> (Fail, newSeen)
        (uGoals, newEnv) -> let
-           (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
-         in (Or (reverse ts) subst descend, seen')
+           -- Делаем свёртку, чтобы просмотренные вершины из одного обработанного поддерева
+           -- можно было передать в ещё не обработанное.
+           (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
+         in (Or ts subst descend, seen')
 
   evalSubTree :: Int -> E.Gamma -> Set.Set DGoal -> Set.Set DGoal -> (E.Sigma, a) -> (Set.Set DGoal, DTree)
   evalSubTree depth env ancs seen (subst, goal)
     | emptyGoal goal
     = (seen, Success subst)
-    | not (CPD.variantCheck (getGoal goal) seen)
-    , isGen (getGoal goal) ancs
+    | not (CPD.variantCheck realGoal seen)
+    , isGen realGoal ancs
     =
       let
-        newAncs  = Set.insert realGoal ancs
         absGoals = GC.abstractChild ancs (subst, realGoal, Just env)
-        (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalGenSubTree depth newAncs seen g) (seen, []) absGoals
-      in (seen', And (reverse ts) subst descend)
+        (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalGenSubTree depth ancs seen g) (seen, []) absGoals
+      in (seen', And ts subst descend)
     | otherwise
     = let
-        (tree, seen') = derivationStep goal ancs env subst seen (1 + depth)
+        newDepth = 1 + depth
+        (tree, seen') = derivationStep goal ancs env subst seen newDepth
       in (seen', tree)
     where
       realGoal = getGoal goal
-      descend = CPD.Descend realGoal ancs
+      descend  = CPD.Descend realGoal ancs
 
       evalGenSubTree depth ancs seen (subst, goal, gen, env) =
         let
-          (newDepth, subtree) = if null gen then (2 + depth, tree) else (3 + depth, Gen tree gen)
+          -- (newDepth, subtree) = if null gen then (1 + depth, tree) else (2 + depth, Gen tree gen)
+          newDepth = if null gen then 2 + depth else 3 + depth
           (tree, seen')       = derivationStep ((initGoal :: DGoal -> a) goal) ancs env subst seen newDepth
+          subtree  = if null gen then tree else Gen tree gen
         in (seen', subtree)
 
 getVariant goal nodes = let
     vs = Set.filter (CPD.isVariant goal) nodes
   in assert (length vs == 1) $ Set.elemAt 0 vs
-
 
 --
 
@@ -123,7 +137,6 @@ unifyAll = mapMaybe . CPD.unifyStuff
 --
 -- Conjunction of DNF to DNF
 --
-
 conjOfDNFtoDNF :: Ord a => Conj (Disj (Conj a)) -> Disj (Conj a)
 conjOfDNFtoDNF = {- unique . -} conjOfDNFtoDNF'
 
@@ -135,4 +148,3 @@ conjOfDNFtoDNF' (x {- Disj (Conj a) -} :xs) = concat $ addConjToDNF x <$> conjOf
 
 addConjToDNF :: Disj (Conj a) -> Conj a -> Disj (Conj a)
 addConjToDNF ds c = (c ++) <$> ds
-
