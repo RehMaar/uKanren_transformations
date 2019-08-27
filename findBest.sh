@@ -1,17 +1,9 @@
 #!/bin/bash
 
-# $1 -- seconds
-# $2 -- command
-# $3 -- check until 
+if [[ -z "$1" || -z "$2" || -z "$3" || -z "$4" ]];
+then
+  echo "Need set all parameters: <sec> <cmd> <upper_seed_bound> <query>";
+  exit
+fi
 
-sec=$1
-cmd="$2"
-bound=$3
-
-[[ -z "$sec" || -z "$cmd" || -z "$bound" ]] && echo "Need to set all parameters" && exit
-
-echo "> Amount of seconds:"  $sec
-echo "> Command to run:" "$cmd"
-echo "> Check first:" $bound "natural numbers"
-
-parallel "timeout $sec $cmd" <<< $(seq 1 $bound)
+./runCheck.sh "$1" "$2" "$3" | ./parseAndFindBest.sh "$4"
