@@ -1,12 +1,16 @@
 module Main where
 
+import Data.Char
+import System.Environment
 import System.Process (system)
 import System.Exit (ExitCode)
 import DotPrinter
 import qualified SeqUnfold as SU
+import qualified RandUnfold as RU
 import qualified Desert as ProgsD
 import qualified Bottles as ProgsB
 import qualified DTree as DT
+import qualified DTResidualize as DTR
 
 fst3 (a, _, _) = a
 
@@ -17,14 +21,27 @@ statTree t = do
   let n = DT.countNodes t
   putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " (Pruned: " ++ show p ++ ")" ++ " Nodes: " ++ show n
 
-printToPdf :: DotPrinter a => String -> a -> IO ExitCode
-printToPdf name t = do
-    let dotfilename = name ++ ".dot"
-    let pdffilename = name ++ ".pdf"
-    printTree dotfilename t
-    system $ "dot -Tpdf '" ++ dotfilename ++ "' > '" ++ pdffilename ++ "'"
+statMTree :: DTR.MarkedTree -> IO ()
+statMTree t = do
+  let d = DTR.countDepth t
+  let (l, f, s) = DTR.countLeafs t
+  let (n, fn) = DTR.countNodes t
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " Fail: " ++ show f ++ " Success: " ++ show s ++ " Nodes: " ++ show n ++ " FunCallNodes: " ++ show fn
+
+targetGoal = ProgsB.query
 
 main = do
-  let t = fst3 $ SU.topLevel ProgsB.query
+  args <- getArgs
+  let seed = case args of
+            [x] | all isNumber x -> read x :: Int
+            _   -> error "Expected seed is a number, but something else was given."
+  let t = fst3 $ RU.topLevel seed targetGoal
+  putStr "Original -> "
   statTree t
---  printToPdf "a" t
+  let mt = DTR.makeMarkedTree t
+  putStr "Marked   -> "
+  statMTree mt
+  let cmt = DTR.cutFailedDerivations mt
+  putStr "Cutted   -> "
+  statMTree cmt
+  putStrLn $ "^ seed: " ++ show seed ++ "\n"
