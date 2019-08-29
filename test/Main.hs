@@ -19,7 +19,7 @@ statTree t = do
   let d = DT.countDepth t
   let (l, p) = DT.countLeafs t
   let n = DT.countNodes t
-  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " (Pruned: " ++ show p ++ ")" ++ " Nodes: " ++ show n
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " Nodes: " ++ show n
 
 statMTree :: DTR.MarkedTree -> IO ()
 statMTree t = do
@@ -42,6 +42,6 @@ main = do
   putStr "Marked   -> "
   statMTree mt
   let cmt = DTR.cutFailedDerivations mt
-  putStr "Cutted   -> "
+  putStr "Cut      -> "
   statMTree cmt
   putStrLn $ "^ seed: " ++ show seed ++ "\n"
