@@ -317,8 +317,8 @@ class (Eq b) => Instance a b | b -> a where
   isRenaming x y =
     x == y || maybe False (all (\e -> case e of V _ -> True; _ -> False ) . Map.elems) (inst x y Map.empty)
 
-  instanceCheck :: b -> [b] -> Bool
-  instanceCheck g = any (isInst g)
+  instanceCheck :: Foldable t => b -> t b -> Bool
+  instanceCheck g = any (`isInst` g)
 
   variantCheck :: Foldable t => b -> t b -> Bool
   variantCheck g = any (isVariant g)
@@ -329,7 +329,7 @@ instance (Eq a, Ord a) => Instance a (Term a) where
       Just w | u == w -> Just subst
       Just w -> Nothing
       Nothing -> Just $ Map.insert v u subst
-  inst (C n as) (C m bs) subst | length as == length bs =
+  inst (C n as) (C m bs) subst | n == m, length as == length bs =
     foldl (\s (a, b) -> s >>= \s -> inst a b s) (Just subst) (zip as bs)
   inst _ _ _ = Nothing
 
