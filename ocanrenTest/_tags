@@ -1,2 +1,1 @@
 <src/*.*>: rectypes,syntax(camlp5o),package(GT,GT.syntax.all,ocanren,ocanren.syntax,ocanren.tester)
-<src2/*.*>: rectypes,syntax(camlp5o),package(GT,GT.syntax.all,ocanren,ocanren.syntax,ocanren.tester)
