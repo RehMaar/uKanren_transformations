@@ -108,6 +108,9 @@ instance Show a => Show (Term a) where
   show (V v) = printf "v.%s" (show v)
   show (C name ts) =
     case name of
+      "nil" -> "[]"
+      "%" -> let [h,t] = ts
+                in printf "(%s : %s)" (show h) (show t)
       "Nil" -> "[]"
       "Cons" -> let [h,t] = ts
                 in printf "(%s : %s)" (show h) (show t)
@@ -146,6 +149,10 @@ instance Dot a => Dot (Term a) where
   dot (V v) = printf "v<SUB>%s</SUB>" (dot v)
   dot (C name ts) =
     case name of
+      "pair" -> "(" ++ intercalate "," (dot <$> ts) ++ ")"
+      "nil" -> "[]"
+      "%" -> let [h,t] = ts
+                in printf "%s : %s" (dot h) (dot t)
       "Nil" -> "[]"
       "Cons" -> let [h,t] = ts
                 in printf "%s : %s" (dot h) (dot t)
