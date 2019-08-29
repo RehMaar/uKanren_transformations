@@ -12,7 +12,7 @@ import qualified CPD
 import Data.List
 import Miscellaneous
 import Data.Maybe (isJust, fromMaybe, mapMaybe)
-import Data.Char (toUpper)
+import Data.Char
 import Control.Arrow (first, second)
 
 import qualified Data.Set as Set
@@ -33,7 +33,7 @@ data MarkedTree = Fail
   | And [MarkedTree] E.Sigma DT.DGoal Bool
   | Leaf DT.DGoal E.Sigma
   | Gen MarkedTree E.Sigma
-
+  deriving Eq
 --
 -- Debug output.
 --
@@ -72,6 +72,29 @@ instance Dot MarkedTree where
 showF True = "T"
 showF _ = ""
 
+-- (Leaf, Fail, Success)
+countLeafs :: MarkedTree -> (Int, Int, Int)
+countLeafs (Or ts _ _ _)  = foldl (\(n1, m1, k1) (n2, m2, k2) -> (n1 + n2, m1 + m2, k1 + k2)) (0, 0, 0) (countLeafs <$> ts)
+countLeafs (And ts _ _ _) = foldl (\(n1, m1, k1) (n2, m2, k2) -> (n1 + n2, m1 + m2, k1 + k2)) (0, 0, 0) (countLeafs <$> ts)
+countLeafs (Gen t _) = countLeafs t
+countLeafs Fail        = (0, 1, 0)
+countLeafs (Success _) = (0, 0, 1)
+countLeafs (Leaf _ _)  = (1, 0, 0)
+
+countDepth :: MarkedTree -> Int
+countDepth (Or ts _ _ _) = 1 + foldl max 0 (countDepth <$> ts)
+countDepth (And ts _ _ _) = 1 + foldl max 0 (countDepth <$> ts)
+countDepth (Gen t _) = 1 + countDepth t
+countDepth _ = 1
+
+countNodes :: MarkedTree -> (Int, Int)
+countNodes (Or ts _ _ True)  = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b + 1)
+countNodes (And ts _ _ True) = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b + 1)
+countNodes (Or ts _ _ _)     = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b)
+countNodes (And ts _ _ _)    = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b)
+countNodes (Gen t _) = let (a, b) = countNodes t in (a + 1, b)
+countNodes _ = (1, 0)
+
 --
 --
 --
@@ -93,11 +116,11 @@ makeMarkedTree' _ _ (DT.Success s)           = Success s
 makeMarkedTree' root leaves (DT.Gen t s)     = Gen (makeMarkedTree' root leaves t) s
 makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s
 makeMarkedTree' root leaves (DT.Or ts s dg@(CPD.Descend g _))  = let
-    isVar = any (CPD.isVariant g) leaves
+    isVar = any (`CPD.isVariant` g) leaves
     ts'   = makeMarkedTree' root leaves <$> ts
   in Or ts' s g isVar
 makeMarkedTree' root leaves (DT.And ts s dg@(CPD.Descend g _))  = let
-    isVar = any (CPD.isVariant g) leaves
+    isVar = any (`CPD.isVariant` g) leaves
     ts'   = makeMarkedTree' root leaves <$> ts
   in And ts' s g isVar
 makeMarkedTree' root leaves _ = undefined
@@ -120,7 +143,7 @@ argsToS = concatMap getSFromTerm
 -- Generate name for an invocation.
 --
 genCallName :: [G a] -> String
-genCallName = concat . toUpperTail . fmap toName . filter isInvoke
+genCallName = nameToOCamlName . concat . toUpperTail . fmap toName . filter isInvoke
   where toName (Invoke g _) = g
 
 --
@@ -134,11 +157,18 @@ genCall :: [G S] -> Call
 genCall = genCall' []
 
 genCall' cs goal = let
-    nameSet = Set.fromList ((\(_, Call name _ _) -> name) <$> cs)
-    name = CR.generateFreshName (genCallName goal) nameSet
+    nameSet = Set.fromList $ ((\(_, Call name _ _) -> name) <$> cs)
+    callName = genCallName goal
+    name = nameToOCamlName $ CR.generateFreshName callName  nameSet
     args = argsToS $ genArgs goal
     orig = argsToS $ getArgs goal
   in Call name args orig
+  where
+    generateFreshName :: Name -> Set.Set Name -> Name
+    generateFreshName n names =
+      if n `notElem` names
+      then n
+      else until (`notElem` names) ('_' :) n
 
 genArgs :: Eq a => [G a] -> [Term a]
 genArgs = nub . genArgs'
@@ -195,6 +225,20 @@ collectCallNames cs (And ts _ _ _) = foldl collectCallNames cs ts
 collectCallNames cs (Gen t _) = collectCallNames cs t
 collectCallNames cs _ = cs
 
+topLevelFixed t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
+  where
+    topLevel' Fail = error "How to residualize failed derivation?"
+    topLevel' mt'@(Or f1 f2 goal f3) = let
+      mt = Or f1 f2 goal True
+      cs = collectCallNames [] mt
+      (defs, body) = res cs [] mt
+
+      in foldDefs defs $ postEval cs goal body -- E.postEval' (R.vident <$> getArgsForPostEval cs goal) body
+
+getArgsForPostEval cs goal = let Call _ args _ = findCall cs goal in args
+postEval cs goal body = E.postEval' (R.vident <$> getArgsForPostEval cs goal) body
+
+
 topLevel t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
 
 topLevel' Fail = error "How to residualize failed derivation?"
@@ -202,43 +246,13 @@ topLevel' mt = let
   cs = collectCallNames [] mt
   (defs, body) = res cs [] mt
   in foldDefs defs body
-{-
-    -- Mark derivation tree.
-    -- Kludge: root Or node must be unmarked
-    mt = (\root -> case root of { (Or ts s goal f) -> Or ts s goal False; _ -> root}) $ makeMarkedTree t
-    -- Generate function signature for upper function.
-    c@(Call name args argsOrig) = genCall goal
-    -- Collect all signatures from the marked tree.
-    cs = collectCallNames [(goal, c)] mt
-
-
-    -- Residualizate the tree
-    -- defs -- collected function definitions
-    -- body -- Let (name, args, def) body
-    (defs, body) = res cs [] mt
-
-    args' = R.vident <$> args
-    args'' = map R.toX $ genArgsByOrig args argsOrig $ genArgs' goal
-
-    -- post-eval for freshes.
-    body' = E.postEval' args' body
-    -- definition of the topLevel call.
-    def = (name, args', body')
-
-    -- name = genCallName goal
-    goal' = Invoke name args''
-
-  -- in genLet (CPD.getCurr dgoal) body
-  in -- trace ("\nInv: " ++ show goal' ++ " Args': " ++ show args' ++ " Call: " ++ show c ++ "\n") $
-    Let def $ foldDefs defs goal'
--}
 
 foldDefs [] g = g
-foldDefs xs g = foldl1 (.) xs g
+foldDefs xs g = foldr1 (.) xs g
 
 foldGoals _ [] = error "Empty goals!"
 foldGoals _ [g] = g
-foldGoals f gs  = foldl1 f gs
+foldGoals f gs  = foldr1 f gs
 
 res = f
   where
@@ -283,16 +297,20 @@ res = f
     f cs s (And ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldGoals (:/\:) goals)
 
     -- For `Gen` do conj of generalizer and the residualized goal.
-    f cs s (Gen t subst) = second (CR.residualizeSubst (subst \\ s) :/\:) (f cs s t)
+    f cs s (Gen t subst) = let diff = subst \\ s in (if null diff then id else second (CR.residualizeSubst diff :/\:)) $ (f cs s t)
 
     --
     -- For `Leaf` find function' call from the given list of calls.
-    f cs s (Leaf dg [])    = ([], findInvoke cs  dg)
+    -- f cs s (Leaf dg [])    = ([], findInvoke cs  dg)
     -- And is subst isn't empty, return conjunction of gaol with it.
-    f cs s (Leaf dg subst) = ([], CR.residualizeSubst (subst \\ s) :/\: findInvoke cs dg)
+    f cs s (Leaf dg subst) = let
+        s' = subst \\ s
+      in if null s' then ([], findInvoke cs  dg) else ([], CR.residualizeSubst s' :/\: findInvoke cs dg)
 
     -- For `Success` just return substitution.
     -- As no definitions possible, return [] as `defs`.
+    f _ s  (Success subst)
+      | null (subst \\ s) = error ("Successfull substitution is the same as a list of substitutions to remove.")
     f _ s  (Success subst) = ([], CR.residualizeSubst (subst \\ s))
 
     f _ _ Fail = error "What to do with failed derivations? Cut them off?"
@@ -340,7 +358,7 @@ cutFailedDerivations = fromMaybe Fail . fst . cfd Set.empty
   where
     cfd :: Set.Set DT.DGoal    -- *Плохие* узлы, которые привели только к Fail узлам.
         -> MarkedTree -- Текущий узел
-        -> (Maybe MarkedTree, Set.Set DT.DGoal) -- Новое поддерево и обновлённых список *плохих* узлов
+        -> (Maybe MarkedTree, Set.Set DT.DGoal) -- Новое поддерево и обновлённый список *плохих* узлов
     cfd gs Fail = (Nothing, gs)
     cfd gs t@(Success _) = (Just t, gs)
     cfd gs t@(Leaf goal _)
@@ -351,18 +369,36 @@ cutFailedDerivations = fromMaybe Fail . fst . cfd Set.empty
     cfd gs (Gen t s) = first (flip Gen s <$>) (cfd gs t)
     cfd gs (Or  ts f1 g True) = cfdCommon1 Or gs ts f1 g
     cfd gs (And ts f1 g True) = cfdCommon1 And gs ts f1 g
-    cfd gs (Or  ts f1 f2 f3) = cfdCommon2 Or  gs ts f1 f2 f3
-    cfd gs (And ts f1 f2 f3) = cfdCommon2 And gs ts f1 f2 f3
+    cfd gs (Or  ts f1 g f3)   = cfdCommon2 Or  gs ts f1 g f3
+    cfd gs (And ts f1 g f3)   = cfdCommon2 And gs ts f1 g f3
 
     cfdCommon1 ctr gs ts f1 g = let
-        (mts, gs') = foldl foldCfd ([], gs) ts
+        (mts, gs') = foldr foldCfd ([], gs) ts
         ts' = mapMaybe id mts
       in if null ts' then (Nothing, Set.insert g gs') else (Just $ ctr ts' f1 g True, gs')
 
     cfdCommon2 ctr gs ts f1 f2 f3 = let
-        (mts, gs') = foldl foldCfd ([], gs) ts
+        (mts, gs') = foldr foldCfd ([], gs) ts
         ts' = mapMaybe id mts
       in if null ts' then (Nothing, gs') else (Just $ ctr ts' f1 f2 f3, gs')
 
+    foldCfd t (ts, gs) = first (:ts) (cfd gs t)
 
-    foldCfd (ts, gs) t = first (:ts) (cfd gs t)
+
+--
+-- Names with not alphanum symbols are not allowed as a part of OCaml identifiers,
+-- so we need to construct a new name without such limitiations.
+--
+nameToOCamlName :: String -> String
+nameToOCamlName name@(n:ns)
+  | firstCorrect n && all restCorrect name
+  = name
+  | otherwise
+  = let newName@(n':_) = concatMap toAlpha name
+  in if firstCorrect n' then newName else 'a' : newName
+  where toAlpha :: Char -> String
+        toAlpha c
+          | restCorrect c = [c]
+          | otherwise = show $ fromEnum c
+        firstCorrect c = isAlpha c || c == '_'
+        restCorrect c  = isAlphaNum c || c == '_' || c == '\''
