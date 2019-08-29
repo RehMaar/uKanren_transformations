@@ -52,35 +52,38 @@ class Show a => Unfold a where
     -> Int               -- Depth for debug.
     -> (DTree, Set.Set DGoal)
   derivationStep goal ancs env subst seen depth
-    | depth >= 16
-    = (Prune (getGoal goal), seen)
-    | CPD.variantCheck (getGoal goal) seen
+    -- | depth >= 50
+    -- = (Prune (getGoal goal), seen)
+    | checkLeaf (getGoal goal) seen
     = (Leaf (CPD.Descend (getGoal goal) ancs) subst env, seen)
     | otherwise
     = let
       realGoal = getGoal goal
       descend = CPD.Descend realGoal ancs
-      newAncs = Set.insert  realGoal ancs
-      newSeen = Set.insert  realGoal seen
+      newAncs = Set.insert realGoal ancs
+      -- Add `goal` to a seen set (`Or` node in the tree).
+      newSeen = Set.insert realGoal seen
     in case unfoldStep goal env subst of
-       ([], _)          -> (Fail, newSeen)
+       ([], _)          -> (Fail, seen)
        (uGoals, newEnv) -> let
            -- Делаем свёртку, чтобы просмотренные вершины из одного обработанного поддерева
            -- можно было передать в ещё не обработанное.
-           (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
-         in (Or ts subst descend, seen')
+           (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalSubTree depth newEnv newAncs seen g) (newSeen, []) uGoals
+         in (Or (reverse ts) subst descend, seen')
 
   evalSubTree :: Int -> E.Gamma -> Set.Set DGoal -> Set.Set DGoal -> (E.Sigma, a) -> (Set.Set DGoal, DTree)
   evalSubTree depth env ancs seen (subst, goal)
     | emptyGoal goal
     = (seen, Success subst)
-    | not (CPD.variantCheck realGoal seen)
+    | not (checkLeaf realGoal seen)
     , isGen realGoal ancs
     =
       let
         absGoals = GC.abstractChild ancs (subst, realGoal, Just env)
-        (seen', ts) = foldr (\g (seen, ts) -> (:ts) <$> evalGenSubTree depth ancs seen g) (seen, []) absGoals
-      in (seen', And ts subst descend)
+        -- Add `realGoal` to a seen set (`And` node in the tree).
+        newSeen = Set.insert realGoal seen
+        (seen', ts) = foldl (\(seen, ts) g -> (:ts) <$> evalGenSubTree depth ancs seen g) (newSeen, []) absGoals
+      in (seen', And (reverse ts) subst descend)
     | otherwise
     = let
         newDepth = 1 + depth
@@ -94,7 +97,7 @@ class Show a => Unfold a where
         let
           -- (newDepth, subtree) = if null gen then (1 + depth, tree) else (2 + depth, Gen tree gen)
           newDepth = if null gen then 2 + depth else 3 + depth
-          (tree, seen')       = derivationStep ((initGoal :: DGoal -> a) goal) ancs env subst seen newDepth
+          (tree, seen') = derivationStep ((initGoal :: DGoal -> a) goal) ancs env subst seen newDepth
           subtree  = if null gen then tree else Gen tree gen
         in (seen', subtree)
 
@@ -148,3 +151,5 @@ conjOfDNFtoDNF' (x {- Disj (Conj a) -} :xs) = concat $ addConjToDNF x <$> conjOf
 
 addConjToDNF :: Disj (Conj a) -> Conj a -> Disj (Conj a)
 addConjToDNF ds c = (c ++) <$> ds
+
+checkLeaf = CPD.variantCheck
