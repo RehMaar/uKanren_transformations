@@ -9,6 +9,8 @@ import qualified SeqUnfold as SU
 import qualified RandUnfold as RU
 import qualified Desert as ProgsD
 import qualified Bottles as ProgsB
+import qualified Path as ProgsP
+import qualified Unify as ProgsU
 import qualified DTree as DT
 import qualified DTResidualize as DTR
 
@@ -26,7 +28,7 @@ statMTree t = do
   let d = DTR.countDepth t
   let (l, f, s) = DTR.countLeafs t
   let (n, fn) = DTR.countNodes t
-  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " Fail: " ++ show f ++ " Success: " ++ show s ++ " Nodes: " ++ show n ++ " FunCallNodes: " ++ show fn
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " Fail: " ++ show f ++ " Success: " ++ show s ++ " Nodes: " ++ show n ++ " FunCall: " ++ show fn
 
 targetGoal = ProgsB.query
 

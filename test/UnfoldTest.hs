@@ -11,15 +11,21 @@ import System.Exit (ExitCode)
 import Data.List
 import Text.Printf
 import Data.Maybe
+import Data.Monoid
 import qualified Data.Set as Set
 
-import qualified SeqUnfold as SU
-import qualified FullUnfold as FU
-import qualified DTree as DT
+
+import qualified Driving as D
 import qualified Unfold as U
 import qualified CPD
 import qualified GlobalControl as GC
 
+
+import qualified SeqUnfold as SU
+import qualified FullUnfold as FU
+import qualified RandUnfold as RU
+
+import qualified DTree as DT
 import qualified DTResidualize as DTR
 
 import qualified List as Progs
@@ -30,6 +36,7 @@ import qualified Bool as Progs
 import qualified Bottles as ProgsB
 import qualified Desert as ProgsD
 import qualified Path as ProgsP
+import qualified Unify as ProgsU
 import qualified Sudoku4x4 as ProgsS
 
 import qualified CpdResidualization as CR
@@ -49,9 +56,8 @@ ocanren' filename goal = do
     let f = CR.residualizationTopLevel tree
     let pur = P.purification (f, vident <$> reverse names)
     let name = (printf "%s.ml" filename)
-    OC.topLevel name "topLevel" Nothing pur
-    system ("echo " ++ name)
-    system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
+    OC.topLevel name "topLevelCPD" Nothing pur
+--    system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
 
 open goal = openInPdf $ fst3 $ SU.topLevel goal
 
@@ -66,53 +72,120 @@ res goal = let
 pur goal = let
     (tree, logicGoal, names) = SU.topLevel goal
     f = DTR.topLevel tree
+    (goal', names', defs) = P.purification (f, vident <$> reverse names)
+  in (goal', names', (\(n1, n2, n3) -> (n1, n2, fromJust $ DTR.simplify n3)) <$> defs)
+
+purFU goal = let
+    (tree, logicGoal, names) = FU.topLevel goal
+    f = DTR.topLevel tree
+  in P.purification (f, vident <$> reverse names)
+
+purRU seed goal = let
+    (tree, logicGoal, names) = RU.topLevel seed goal
+    f = DTR.topLevel tree
   in P.purification (f, vident <$> reverse names)
 
 purId goal = let
     (tree, logicGoal, names) = SU.topLevel goal
     f = DTR.topLevel tree
-  in P.identity (f, vident <$> reverse names)
+    (goal', names', defs) = P.identity (f, vident <$> reverse names)
+  in (goal', names', (\(n1, n2, n3) -> (n1, n2, fromJust $ DTR.simplify n3)) <$> defs)
 
 ocanrenId filename goal = do
     let p = purId goal
     let name = (printf "%s.ml" filename)
-    OC.topLevel name "topLevel" Nothing p
-
-ocanrenTest filename goal = do
-    let p = pur goal
-    let name = (printf "%s.ml" filename)
-    OC.topLevel name "topLevel" Nothing p
-    system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
-
-ocanrenTestAll filename goal = do
-    let name = (printf "%s.ml" filename)
-    forM_ (zip [1..] goal) (\(n, g) ->
-      OC.topLevel (name ++ show n) ("topLevel" ++ show n) Nothing (pur g))
-    -- system ("cp " ++ name ++ " ocanrenTest/src/" ++ name)
+    OC.topLevel name "topLevelSU" Nothing p
 
 ocanren filename goal = do
     let p = pur goal
     let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevelSU" Nothing p
+
+ocanrenGen pur filename goal = do
+    let p = pur goal
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevelMy" Nothing p
+
+ocanrenSimple filename goal = do
+    let (_, _, names) = U.goalXtoGoalS goal
+    let p = P.purification (goal, vident <$> reverse names)
+    let name = (printf "%s.ml" filename)
     OC.topLevel name "topLevel" Nothing p
 
+ocanrenPrint goal = do
+    let p = pur goal
+    putStrLn $ OC.ocanrenize' "topLevel" p
 
-collectOrNodes :: DT.DTree -> [DT.DGoal]
-collectOrNodes (DT.Or ts _ dg) = CPD.getCurr dg : concatMap collectOrNodes ts
-collectOrNodes (DT.And ts _ _) = concatMap collectOrNodes ts
-collectOrNodes (DT.Gen t _) = collectOrNodes t
-collectOrNodes _ = []
+ocanren'' goal = do
+    let (tree, logicGoal, names) = SU.topLevel goal
+    let as = vident <$> reverse names
+    let f = DTR.topLevel tree
+    let (goal', names', defs) = P.purification (f, as)
+    let p = (goal', names', (\(n1, n2, n3) -> (n1, n2, fromJust $ DTR.simplify n3)) <$> defs)
+    -- putStrLn $ OC.ocanrenize' "topLevel" p
+    OC.topLevel "a.ml" "topLevelSU" Nothing p
 
-{-
-toProgram :: (G X -> (DT.DTree, G S, [S])) ->  G X -> G S
-toProgram tl g = let
-    (t, g, ns) = tl g
-  in P.purification (DTR.residualize t g ns)
--}
+ocanrenRU'' seed goal = do
+    let (tree, logicGoal, names) = RU.topLevel seed goal
+    let as = vident <$> reverse names
+    let f = DTR.topLevel tree
+    let (goal', names', defs) = P.purification (f, as)
+    let p = (goal', names', (\(n1, n2, n3) -> (n1, n2, fromJust $ DTR.simplify n3)) <$> defs)
+    -- putStrLn $ OC.ocanrenize' "topLevel" p
+    OC.topLevel "a.ml" "topLevelRU" Nothing p
 
-toProgram goal = let
-    (t, g, ns) = FU.topLevel goal
-    (t1, ts) = DTR.residualize t g ns
-  in if isJust t1 then Just $ P.purification (fromJust t1, ts) else Nothing
+
+
+{-ocanrenP filename goal = do
+    let (tree, logicGoal, names) = SU.topLevel goal
+    let f = DTR.topLevel' [] tree
+    let (goal', names', defs) = P.purification (f, vident <$> reverse names)
+    let p = (goal', names', (\(n1, n2, n3) -> (n1, n2, fromJust $ DTR.simplify n3)) <$> defs)
+    let name = (printf "%s.ml" filename)
+    OC.topLevel name "topLevel" Nothing p-}
+
+returnSubtreeWithNode :: DT.DTree -> DT.DGoal -> Maybe DT.DTree
+returnSubtreeWithNode t@(DT.Or ts _ (CPD.Descend dg _)) goal
+  | dg == goal
+  = Just t
+  | otherwise
+  = DT.findFirst (flip returnSubtreeWithNode goal) ts
+returnSubtreeWithNode t@(DT.And ts _ (CPD.Descend dg _)) goal
+  | dg == goal
+  = Just t
+  | otherwise
+  = DT.findFirst (flip returnSubtreeWithNode goal) ts
+returnSubtreeWithNode (DT.Gen t _) goal = returnSubtreeWithNode t goal
+returnSubtreeWithNode _ _ = Nothing
+
+returnSubtreeWithNodeM :: DTR.MarkedTree -> DT.DGoal -> Maybe DTR.MarkedTree
+returnSubtreeWithNodeM t@(DTR.Or ts _ dg _) goal
+  | dg == goal
+  = Just t
+  | otherwise
+  = DT.findFirst (flip returnSubtreeWithNodeM goal) ts
+returnSubtreeWithNodeM t@(DTR.And ts _ dg _) goal
+  | dg == goal
+  = Just t
+  | otherwise
+  = DT.findFirst (flip returnSubtreeWithNodeM goal) ts
+returnSubtreeWithNodeM (DTR.Gen t _) goal = returnSubtreeWithNodeM t goal
+returnSubtreeWithNodeM t@(DTR.Leaf goal _) goal2
+  | goal == goal2
+  = Just t
+returnSubtreeWithNodeM _ _ = Nothing
+
+collectOrAndNodes :: DT.DTree -> [DT.DGoal]
+collectOrAndNodes (DT.Or ts _ dg) = CPD.getCurr dg : concatMap collectOrAndNodes ts
+collectOrAndNodes (DT.And ts _ dg) = CPD.getCurr dg : concatMap collectOrAndNodes ts
+collectOrAndNodes (DT.Gen t _) = collectOrAndNodes t
+collectOrAndNodes _ = []
+
+collectOrNodeMT :: DTR.MarkedTree -> [(DT.DGoal, Bool)]
+collectOrNodeMT (DTR.Or ts _ dg flag) = (dg, flag) : concatMap collectOrNodeMT ts
+collectOrNodeMT (DTR.And ts _ dg flag) = concatMap collectOrNodeMT ts
+collectOrNodeMT (DTR.Gen t _) = collectOrNodeMT t
+collectOrNodeMT _ = []
 
 --
 -- Save a tree into pdf file.
@@ -152,7 +225,15 @@ statTree t = do
   let d = DT.countDepth t
   let (l, p) = DT.countLeafs t
   let n = DT.countNodes t
-  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l {- ++  " (Pruned: " ++ show p ++ ")" -} ++ " Nodes: " ++ show n
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++  " (Pruned: " ++ show p ++ ")" ++ " Nodes: " ++ show n
+
+statMTree :: DTR.MarkedTree -> IO ()
+statMTree t = do
+  let d = DTR.countDepth t
+  let (l, f, s) = DTR.countLeafs t
+  let (n, fn) = DTR.countNodes t
+  putStrLn $ "Depth: " ++ show d ++ " Leafs: " ++ show l ++ " Fail: " ++ show f ++ " Success: " ++ show s ++ " Nodes: " ++ show n ++ " FunCallNodes: " ++ show fn
+
 
 stats _ [] = return ()
 stats f ((name, call):cs) = do
@@ -294,12 +375,14 @@ test4Call = Progs.revAcco $ fresh ["a", "b"]
 
 testH1 = Progs.maxLengtho $ fresh ["x", "m", "l"]
            (call "maxLengtho" [V "x", V "m", V "l"])
+testML = testH1
 
 testH1' = Progs.maxo $ fresh ["a", "r"]
            (call "maxo" [V "a", V "r"])
 
 testH2 = Progs.sorto $ fresh ["xs", "ys"]
            (call "sorto" [V "xs", V "ys"])
+testSort = testH2
 
 testCall = outter $ fresh ["x"] $ call "outter" [V "x"]
 
@@ -347,12 +430,41 @@ testNum2Query = Let (def "q1" ["x", "r"]
 
 testNum2 = testNum2Query $ fresh ["x", "r"] $ call "q1" [V "x", V "r"]
 
-t = fst3 $ FU.topLevel test2Call
-DT.Or [_, tt2] subst1 (CPD.Descend goal1 ancs1) = t
-DT.Or _ subst2 (CPD.Descend goal2 ancs2) = tt2
-
-
 mygoal = [Invoke "addo" [V (3 :: Int),V 2,V 4],Invoke "addo" [C "S" [C "S" [C "O" []]],V 7,V 2],Invoke "mulo" [V 5,C "S" [C "S" [C "O" []]],V 7]]
 ancs = Set.fromList  [[Invoke "addo" [V (3 :: Int),V 2,V 4],Invoke "mulo" [V 0,C "S" [C "S" [C "O" []]],V 2]],[Invoke "addo" [C "S" [C "S" [C "O" []]],V 2,C "S" [C "S" [C "S" [C "O" []]]]],Invoke "mulo" [V 0,C "S" [C "S" [C "O" []]],V 2]],[Invoke "mulo" [C "S" [C "S" [C "O" []]],C "S" [C "S" [C "O" []]],C "S" [C "S" [C "S" [C "O" []]]]]],[Invoke "sqro" [C "S" [C "S" [C "O" []]],C "S" [C "S" [C "S" [C "O" []]]]]]]
 
 testSimple = Progs.appendo $ fresh ["x", "y", "r"] $ call "appendo" [V "x", V "y", V "r"]
+
+---
+
+cmpWithRand seed goal = do
+    statTree $ fst3 $ SU.topLevel goal
+    -- statTree $ fst3 $ RU.topLevel seed goal
+
+findGoal :: DT.DGoal -> DT.DTree -> Maybe DT.DTree
+findGoal g t@(DT.Or ts _ g')
+  | CPD.isVariant g (CPD.getCurr g') = Just t -- (CPD.getCurr g')
+  | otherwise = getFirst $ mconcat $ (First . findGoal g) <$> ts
+findGoal g t@(DT.And ts _ g')
+  | CPD.isVariant g (CPD.getCurr g')  = Just t --(CPD.getCurr g')
+  | otherwise = getFirst $ mconcat $ (First . findGoal g) <$> ts
+findGoal g (DT.Gen t _) = findGoal g t
+findGoal g t@(DT.Leaf g' _ _)
+  | CPD.isVariant g (CPD.getCurr g') = Just t -- (CPD.getCurr g')
+findGoal _ _ = Nothing
+
+goal = ProgsP.query1
+
+-- t = fst3 $ RU.topLevel 44 ProgsB.query
+-- mt = DTR.makeMarkedTree t
+-- cmt = DTR.cutFailedDerivations mt
+-- 
+-- g =  [Invoke "add" [C "s" [C "o" []], C "s" [C "s" [V (73 :: Int)]], C "o" []]]
+
+
+gl = Let def goal
+  where
+    def = ("test", ["x1", "x2"], body)
+    goal = Invoke "test" [C "S" [C "O" []], C "O" []]
+    body = Fresh "q1" $ Fresh "q2" $
+             (Fresh "q3" $ V "q3" === V "q1" &&& V "q1" === V "x2") ||| (Fresh "q4" $ V "q3" === V "q2" &&& V "q1" === V "x2")
