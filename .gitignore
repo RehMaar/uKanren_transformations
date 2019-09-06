@@ -24,3 +24,5 @@ cabal.project.local
 /*.dot
 /*.ml
 bridge
+_build
+*.native
