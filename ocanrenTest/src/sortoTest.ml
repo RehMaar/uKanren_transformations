@@ -62,6 +62,19 @@ let topLevelMy x0 x1 =
 let topLevelMy2 x0 x1 = let rec sorto y0 y1 = (fresh (q1 q2 q3) ((((y0 === nil ()) &&& (y1 === nil ())) ||| (((y1 === (q1 % q2)) &&& (sorto q3 q2)) &&& (
 (y1 === (q1 % q2)) &&& (smallesto y0 q1 q3)))))) and smallesto y2 y3 y4 = (fresh (q1 q2 q3 q4 q5) ((((y2 === (y3 % nil ())) &&& (y4 === nil ())) ||| ((((y4 === (q1 % q2)) &&& (y2 === (q3 % q4))) &&& (smallesto q4 q5 q2)) &&& ((((((y4 === (q1 % q2)) &&& (y2 === (q3 % q4))) &&& (y3 === q3)) &&& (q1 === q5)) &&& (leo q3 q5)) ||| (((((y4 === (q1 % q2)) &&& (y2 === (q3 % q4))) &&& (q1 === q3)) &&& (y3 === q5)) &&& (gto q3 q5))))))) and leo y5 y6 = (fresh (q1 q2) (((y5 === zero) ||| (((y5 === succ (q1)) &&& (y6 === succ (q2))) &&& (leo q1 q2))))) and gto y7 y8 = (fresh (q1 q2 q3) ((((y7 === succ (q1)) &&& (y8 === zero)) ||| (((y7 === succ (q2)) &&& (y8 === succ (q3))) &&& (gto q2 q3))))) in     (sorto x0 x1)
 
+let topLevelMy x0 x1 =
+  let rec sorto y0 y1 = fresh (q1 q2 q3) (y0 === nil () &&& (y1 === nil ()) ||| (y1 === q1 % q2 &&& (sorto q3 q2 &&& smallesto y0 q1 q3)))
+  and smallesto y2 y3 y4 =
+    fresh (q1 q2 q3 q4 q5)
+      ( y2
+      === y3 % nil ()
+      &&& (y4 === nil ())
+      ||| ( y4 === q1 % q2
+          &&& (y2 === q3 % q4)
+          &&& (smallesto q4 q5 q2 &&& (y3 === q3 &&& (q1 === q5) &&& leo q3 q5 ||| (q1 === q3 &&& (y3 === q5) &&& gto q3 q5))) ) )
+  and leo y5 y6 = fresh (q1 q2) (y5 === zero ||| (y5 === succ q1 &&& (y6 === succ q2) &&& leo q1 q2))
+  and gto y7 y8 = fresh (q1 q2 q3) (y7 === succ q1 &&& (y8 === zero) ||| (y7 === succ q2 &&& (y8 === succ q3) &&& gto q2 q3)) in
+  sorto x0 x1
 
 let x1 = ocanren([1; 0; 0; 1])
 let x2 = ocanren([1; 2; 3; 5])
@@ -74,11 +87,11 @@ let result23 = run q (fun q -> topLevelMy2  x3 q) id
 
 let _ =
 (*   L.iter (fun c -> Printf.printf "CPD: %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify)) @@ result1 *)
-     L.iter (fun c -> Printf.printf "My1:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
+     L.iter (fun c -> Printf.printf "My1 [1, 0, 0, 1]:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
      @@ Stream.take ~n:1 result21;
-     L.iter (fun c -> Printf.printf "My2:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
+     L.iter (fun c -> Printf.printf "My2 [1, 2, 3, 5]:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
      @@ Stream.take ~n:1 result22;
-     L.iter (fun c -> Printf.printf "My3:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
+     L.iter (fun c -> Printf.printf "My3 [1, 2, 3, 5]:  %s\n" @@ show(List.logic) (show(Nat.logic)) @@ c#reify (List.reify Nat.reify))
      @@ Stream.take ~n:1 result23
 
 
