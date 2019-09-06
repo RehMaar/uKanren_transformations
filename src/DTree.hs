@@ -35,6 +35,7 @@ goalToDNF = CPD.normalize
 
 
 -- Derivation Tree
+-- TODO: `DDescendGoal' seems to be useless, `DGoal' is enough.
 data DTree = Fail   -- Failed derivation.
   | Success E.Sigma -- Success derivation.
   | Or [DTree] E.Sigma DDescendGoal -- Node for a disjunction.

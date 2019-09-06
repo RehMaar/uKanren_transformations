@@ -46,9 +46,6 @@ instance Show MarkedTree where
   show (Leaf g _)          = "{Leaf " ++ show g ++ "}"
 
 
---
---
---
 instance DotPrinter MarkedTree where
   labelNode t@(Or ch _ _ _) = addChildren t ch
   labelNode t@(And ch _ _ _) = addChildren t ch
@@ -58,7 +55,7 @@ instance DotPrinter MarkedTree where
 --
 -- Change to downscale the tree.
 --
--- dotSigma _ = ""
+--dotSigma _ = ""
 dotSigma = E.dotSigma
 
 instance Dot MarkedTree where
@@ -87,6 +84,7 @@ countDepth (And ts _ _ _) = 1 + foldl max 0 (countDepth <$> ts)
 countDepth (Gen t _) = 1 + countDepth t
 countDepth _ = 1
 
+-- -> (Count of nodes, Count of calls)
 countNodes :: MarkedTree -> (Int, Int)
 countNodes (Or ts _ _ True)  = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b + 1)
 countNodes (And ts _ _ True) = let (a, b) = foldl (\(a1, b1) (a2, b2) -> (a1 + a2, b1 + b2)) (0, 0) (countNodes <$> ts) in (a + 1, b + 1)
@@ -97,33 +95,29 @@ countNodes _ = (1, 0)
 
 --
 --
---
 data Call = Call { callName :: Name, callArgs :: [S], callOrigArgs :: [S] }
   deriving Show
 
 
-makeMarkedTree :: DT.DTree
-               -> MarkedTree
+makeMarkedTree :: DT.DTree -> MarkedTree
 makeMarkedTree x = makeMarkedTree' x (DT.leaves x) x
-
-
-makeMarkedTree' :: DT.DTree      -- Root of the tree
-                -> [DT.DGoal]    -- Leaves of the tree (Only `Leaf` nodes)
-                -> DT.DTree      -- Currently traversed tree.
-                -> MarkedTree
-makeMarkedTree' _ _ DT.Fail                  = Fail
-makeMarkedTree' _ _ (DT.Success s)           = Success s
-makeMarkedTree' root leaves (DT.Gen t s)     = Gen (makeMarkedTree' root leaves t) s
-makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s
-makeMarkedTree' root leaves (DT.Or ts s dg@(CPD.Descend g _))  = let
-    isVar = any (`CPD.isVariant` g) leaves
-    ts'   = makeMarkedTree' root leaves <$> ts
-  in Or ts' s g isVar
-makeMarkedTree' root leaves (DT.And ts s dg@(CPD.Descend g _))  = let
-    isVar = any (`CPD.isVariant` g) leaves
-    ts'   = makeMarkedTree' root leaves <$> ts
-  in And ts' s g isVar
-makeMarkedTree' root leaves _ = undefined
+  where
+    makeMarkedTree' :: DT.DTree      -- Root of the tree
+                    -> [DT.DGoal]    -- Leaves of the tree (Only `Leaf` nodes)
+                    -> DT.DTree      -- Currently traversed tree.
+                    -> MarkedTree
+    makeMarkedTree' _ _ DT.Fail                  = Fail
+    makeMarkedTree' _ _ (DT.Success s)           = Success s
+    makeMarkedTree' root leaves (DT.Gen t s)     = Gen (makeMarkedTree' root leaves t) s
+    makeMarkedTree' root leaves (DT.Leaf df s g) = Leaf (CPD.getCurr df) s
+    makeMarkedTree' root leaves (DT.Or ts s dg@(CPD.Descend g _))  = let
+        isVar = any (`CPD.isVariant` g) leaves
+        ts'   = makeMarkedTree' root leaves <$> ts
+      in Or ts' s g isVar
+    makeMarkedTree' root leaves (DT.And ts s dg@(CPD.Descend g _))  = let
+        isVar = any (`CPD.isVariant` g) leaves
+        ts'   = makeMarkedTree' root leaves <$> ts
+      in And ts' s g isVar
 
 --
 -- Get all variables from the given term.
@@ -225,27 +219,18 @@ collectCallNames cs (And ts _ _ _) = foldl collectCallNames cs ts
 collectCallNames cs (Gen t _) = collectCallNames cs t
 collectCallNames cs _ = cs
 
-topLevelFixed t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
+topLevel t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
   where
     topLevel' Fail = error "How to residualize failed derivation?"
     topLevel' mt'@(Or f1 f2 goal f3) = let
       mt = Or f1 f2 goal True
       cs = collectCallNames [] mt
       (defs, body) = res cs [] mt
-
-      in foldDefs defs $ postEval cs goal body -- E.postEval' (R.vident <$> getArgsForPostEval cs goal) body
+      in foldDefs defs $ postEval cs goal body
 
 getArgsForPostEval cs goal = let Call _ args _ = findCall cs goal in args
 postEval cs goal body = E.postEval' (R.vident <$> getArgsForPostEval cs goal) body
 
-
-topLevel t = topLevel' $ cutFailedDerivations $ makeMarkedTree t
-
-topLevel' Fail = error "How to residualize failed derivation?"
-topLevel' mt = let
-  cs = collectCallNames [] mt
-  (defs, body) = res cs [] mt
-  in foldDefs defs body
 
 foldDefs [] g = g
 foldDefs xs g = foldr1 (.) xs g
@@ -254,6 +239,7 @@ foldGoals _ [] = error "Empty goals!"
 foldGoals _ [g] = g
 foldGoals f gs  = foldr1 f gs
 
+{-
 res = f
   where
     --
@@ -294,10 +280,14 @@ res = f
     f cs s (Or ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldGoals (:\/:) goals)
     -- For `And` do the same.
     f cs s (And ts subst dg True) = helper cs s ts subst dg (:/\:)
-    f cs s (And ts subst dg _) = let (defs, goals) = unzip $ f cs s <$> ts in (concat defs, foldGoals (:/\:) goals)
+    f cs s (And ts subst dg _) = let
+        (defs, goals) = unzip $ f cs s <$> ts
+      in (concat defs, foldGoals (:/\:) goals)
 
     -- For `Gen` do conj of generalizer and the residualized goal.
-    f cs s (Gen t subst) = let diff = subst \\ s in (if null diff then id else second (CR.residualizeSubst diff :/\:)) $ (f cs s t)
+    f cs s (Gen t subst) = let diff = subst \\ s in
+          (if null diff then id else second (CR.residualizeSubst diff :/\:)) $
+          f cs (s `union` diff) t
 
     --
     -- For `Leaf` find function' call from the given list of calls.
@@ -313,9 +303,71 @@ res = f
       | null (subst \\ s) = error ("Successfull substitution is the same as a list of substitutions to remove.")
     f _ s  (Success subst) = ([], CR.residualizeSubst (subst \\ s))
 
-    f _ _ Fail = error "What to do with failed derivations? Cut them off?"
+    f _ _ Fail = error "All failed derivations must be cut off."
+-}
+
+res = f
+  where
+    helper cs s ts subst goal foldf defs goals = let
+        Call name args argsOrig = findCall cs goal
+
+        argsS = R.vident <$> args
+        body = E.postEval' argsS $ foldGoals foldf goals
+
+        def = Let (name, argsS, body)
+
+        goalArgs = genArgs' goal
+
+        iargs = map R.toX $ genArgsByOrig args argsOrig goalArgs
+
+        diff  = subst \\ s
+        goal' = applySubst diff $ Invoke name iargs
+      in (def : concat defs, goal')
 
 
+    f cs s (Or ts subst dg True) = let
+        un   = subst `union` s
+        (defs, goals) = unzip $ f cs un <$> ts
+      in helper cs un ts subst dg (:\/:) defs goals
+
+    f cs s (Or ts subst dg _)    = let
+        diff = subst \\ s
+        un   = subst `union` s
+        (defs, goals) = unzip $ f cs un <$> ts
+      in (concat defs, applySubst diff $ foldGoals (:\/:) goals)
+
+    f cs s (And ts subst dg True)    = let
+        un   = subst `union` s
+        (defs, goals) = unzip $ f cs un <$> ts
+      in helper cs un ts subst dg (:/\:) defs goals
+
+    f cs s (And ts subst dg _)    = let
+        diff = subst \\ s
+        un   = subst `union` s
+        (defs, goals) = unzip $ f cs un <$> ts
+      in (concat defs, applySubst diff $ foldGoals (:/\:) goals)
+
+    f cs s (Gen t subst) = second (applySubst (subst \\ s)) $ f cs (s `union` subst) t
+
+    f cs s (Leaf dg subst) = ([], applySubst (subst \\ s) $ findInvoke cs dg)
+
+    f _ s  (Success subst)
+      | null (subst \\ s) = ([], Invoke "success" [])
+      | otherwise         = ([], CR.residualizeSubst (subst \\ s))
+
+    f _ _ Fail = ([], Invoke "failure" [])
+
+applySubst [] = id
+applySubst diff = (CR.residualizeSubst diff :/\:)
+
+getGenTree (Gen t _) = t
+
+groupAndChildren = groupBy (\a1 a2 -> isGenNode a1 && isGenNode a2 && (getGen a1 == getGen a2))
+  where
+    isGenNode (Gen _ _) = True
+    isGenNode _ = False
+
+    getGen (Gen _ gen) = gen
 
 findCall cs goal = snd
   $ fromMaybe (error $ "No invocation for the leaf: " ++ show goal)
@@ -356,8 +408,8 @@ mapTwoLists l1 l2
 --
 cutFailedDerivations = fromMaybe Fail . fst . cfd Set.empty 
   where
-    cfd :: Set.Set DT.DGoal    -- *Плохие* узлы, которые привели только к Fail узлам.
-        -> MarkedTree -- Текущий узел
+    cfd :: Set.Set DT.DGoal -- *Плохие* узлы, которые привели только к Fail узлам.
+        -> MarkedTree       -- Текущий узел
         -> (Maybe MarkedTree, Set.Set DT.DGoal) -- Новое поддерево и обновлённый список *плохих* узлов
     cfd gs Fail = (Nothing, gs)
     cfd gs t@(Success _) = (Just t, gs)
@@ -373,16 +425,16 @@ cutFailedDerivations = fromMaybe Fail . fst . cfd Set.empty
     cfd gs (And ts f1 g f3)   = cfdCommon2 And gs ts f1 g f3
 
     cfdCommon1 ctr gs ts f1 g = let
-        (mts, gs') = foldr foldCfd ([], gs) ts
-        ts' = mapMaybe id mts
+        (mts, gs') = foldl foldCfd ([], gs) ts
+        ts' = mapMaybe id (reverse mts)
       in if null ts' then (Nothing, Set.insert g gs') else (Just $ ctr ts' f1 g True, gs')
 
     cfdCommon2 ctr gs ts f1 f2 f3 = let
-        (mts, gs') = foldr foldCfd ([], gs) ts
-        ts' = mapMaybe id mts
+        (mts, gs') = foldl foldCfd ([], gs) ts
+        ts' = mapMaybe id (reverse mts)
       in if null ts' then (Nothing, gs') else (Just $ ctr ts' f1 f2 f3, gs')
 
-    foldCfd t (ts, gs) = first (:ts) (cfd gs t)
+    foldCfd (ts, gs) t = first (:ts) (cfd gs t)
 
 
 --
@@ -402,3 +454,42 @@ nameToOCamlName name@(n:ns)
           | otherwise = show $ fromEnum c
         firstCorrect c = isAlpha c || c == '_'
         restCorrect c  = isAlphaNum c || c == '_' || c == '\''
+
+--
+-- Some optimizations, which Purification doesn't do.
+--
+simplify :: G X -> Maybe (G X)
+simplify g@(t1 :=: t2)
+  | t1 == t2
+  = Nothing
+  | otherwise
+  = Just g
+simplify (t1 :\/: t2) = let
+    t1' = simplify t1
+    t2' = simplify t2
+  in case (t1', t2') of
+     (Just t1'', Just t2'') -> Just $ t1'' :\/: t2''
+     (_, Just t2'') -> Just $ t2''
+     (Just t1'', _) -> Just $ t1''
+     _              -> Nothing
+simplify (t1 :/\: t2) = let
+    t1' = simplify t1
+    t2' = simplify t2
+  in case (t1', t2') of
+     (Just t1'', Just t2'') -> Just $ t1'' :/\: t2''
+     (_, Just t2'') -> Just $ t2''
+     (Just t1'', _) -> Just $ t1''
+     _              -> Nothing
+simplify (Fresh name t)
+ | Just t' <- simplify t
+ = Just $ Fresh name t'
+simplify t@(Invoke _ _) = Just t
+simplify (Let (name, args, g1) g2)
+ | Just g1' <- simplify g1
+ , Just g2' <- simplify g2
+ = Just $ Let (name, args, g1) g2
+simplify _ = Nothing
+
+getV (V a) = a
+
+toCutMTree = cutFailedDerivations . makeMarkedTree
