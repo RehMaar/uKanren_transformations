@@ -302,6 +302,8 @@ defToRules (n, a, g) = map (\(s, f) -> (applyInFunc s (n, ta), map (applyInFunc 
   gToRules (Fresh _ g)   = gToRules g
   gToRules (g1 :\/: g2)  = gToRules g1 ++ gToRules g2
   gToRules (g1 :/\: g2)  = [(s1 ++ s2, f1 ++ f2) | (s1, f1) <- gToRules g1, (s2, f2) <- gToRules g2]
+  gToRules _ = [([], [])]
+  -- gToRules x = error $ "gToRules: " ++ show x
 
   applySubst :: Subst -> Term X -> Term X
   applySubst s t@(V v) = case lookup v s of
